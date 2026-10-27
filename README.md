@@ -96,7 +96,7 @@ suite when a full Xcode installation is available. `./release.sh` packages a ZIP
 
 - [Feature gallery](https://h0777.github.io/Notchest/#features) — 25 app captures covering 39 features.
 - [Setup guide](https://h0777.github.io/Notchest/guide.html) · [الدليل العربي](https://h0777.github.io/Notchest/guide-ar.html).
-- [Roadmap](ROADMAP.md) · [خطة العمل بالعربية](ROADMAP.ar.md) · [Feature status](FEATURES.md).
+- [Roadmap](ROADMAP.md) · [Feature status](FEATURES.md).
 - [Changelog](CHANGELOG.md) · [Brand assets](Brand/README.md) · [Screenshot provenance](Brand/GALLERY.md).
 
 ## Contribute
