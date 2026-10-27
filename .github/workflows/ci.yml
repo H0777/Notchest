@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: Build, tests and checks
+    # The sources use macOS 26-era APIs behind availability checks
+    # (see NotchestDesign.swift), so the runner must provide Xcode 26 / the
+    # macOS 26 SDK. Revisit as the support matrix in ROADMAP.md firms up.
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+      - name: Validate website and feature gallery
+        run: python3 Scripts/check-site.py
+      - name: Build (debug, no signing)
+        run: swift build
+      - name: Run unit tests
+        run: swift test
+      - name: Run project checks
+        run: ./check.sh

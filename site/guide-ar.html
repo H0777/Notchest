@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notchest — صندوق أدوات في نوتش الماك</title>
+<meta name="description" content="دليل تركيب ميزات Notchest بالتفصيل: أدوات التركيز، مساحة المطوّر، استخدام الذكاء الاصطناعي، الطقس والترجمة والأسهم والموسيقى والمراقبة.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="documentation">
+<a class="guide-back" href="ar.html">← العودة إلى Notchest</a>
+<div class="wrap">
+
+<header class="site">
+  <div class="brand">
+    <img src="icon.png" alt="أيقونة Notchest">
+    <div>
+      <h1>Notchest</h1>
+      <p>صندوق أدوات مميز يسكن نوتش الماك.</p>
+    </div>
+    <span class="lang"><a href="guide.html">English</a> · <b>العربية</b></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#start">البداية</a>
+  <a href="#everyday">أدوات يومية</a>
+  <a href="#developer">مساحة المطوّر</a>
+  <a href="#ai">استخدام الذكاء الاصطناعي</a>
+  <a href="#utilities">أدوات يومية متقدمة</a>
+  <a href="#monitoring">المراقبة</a>
+  <a href="#settings">الإعدادات</a>
+</nav>
+
+<section id="start">
+  <h2><span class="n">٠١</span>البداية</h2>
+  <p class="lead">النسخة الحالية 0.5 ولا يوجد إصدار موقّع بعد، فالبناء من المصدر يستغرق دقيقة واحدة تقريبًا.</p>
+  <pre class="terminal" dir="ltr"><span class="p">$</span> git clone https://github.com/H0777/Notchest.git
+<span class="p">$</span> cd Notchest
+<span class="p">$</span> ./build.sh     <span class="p">#→ dist/Notchest.app</span>
+<span class="p">$</span> ./check.sh     <span class="p">#→ 34 فحصًا آليًا</span></pre>
+  <p class="lead">افتح <code>dist/Notchest.app</code> مرة واحدة لتظهر الجزيرة حول النوتش على الشاشة التي تختارها. انقرها لفتح صندوق الأدوات. المتطلبات: macOS 13 فما أحدث (Apple Silicon)، وXcode 26 أو أدوات سطر الأوامر مع SDK macOS 26 للبناء.</p>
+  <div class="note"><b>تثبيت سهل بلا شاشات مثبّت.</b> الإصدارات تضم <b>DMG</b> — افتحه، اسحب Notchest إلى سهم Applications، أخرج القرص، وانتهى — مع بديل <code>.zip</code> محمول. وحتى يوقَّع التطبيق بهوية Developer ID ويُصدَّق (وهو على الخطة)، ستطلب <i>أول</i> فتحة على ماك جديد تأكيدًا لمرة واحدة: نقر بزر أيمن ← <b>فتح</b> على macOS 13–14، أو <b>إعدادات النظام ← الخصوصية والأمان ← فتح بأي حال</b> على macOS 15+.</div>
+</section>
+
+<section id="everyday">
+  <h2><span class="n">٠٢</span>الأدوات اليومية</h2>
+  <div class="grid">
+    <div class="card" data-tone="coral">
+      <h3>مؤقّت التركيز والساعة</h3>
+      <p>جلسات تركيز موقوتة مع تقدم مباشر على الجزيرة.</p>
+      <ol class="steps">
+        <li>افتح الجزيرة واختر أداة التركيز.</li>
+        <li>حدّد المدة وابدأ؛ اطوِ الجزيرة وواصل عملك.</li>
+        <li>يبقى التقدم والاكتمال ظاهرين على النوتش.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="mint">
+      <h3>الملاحظات</h3>
+      <p>مسودة سريعة تبقى بعد إعادة التشغيل.</p>
+      <ol class="steps">
+        <li>افتح أداة الملاحظات واكتب.</li>
+        <li>يُحفظ النص محليًا ويُستعاد في التشغيل التالي.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="violet">
+      <h3>سجل الحافظة (اختياري)</h3>
+      <p>آخر المنسوخات، محفوظة على قرصك فقط.</p>
+      <ol class="steps">
+        <li>فعّل سجل الحافظة من الإعدادات.</li>
+        <li>انسخ كالمعتاد؛ تظهر آخر العناصر في الأداة.</li>
+        <li>العناصر الموسومة كخاصة من النظام تُستثنى.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="amber">
+      <h3>رف الملفات</h3>
+      <p>ملفات ومجلدات في متناولك دون فوضى على سطح المكتب.</p>
+      <ol class="steps">
+        <li>اسحب الملفات إلى رف الجزيرة.</li>
+        <li>تُحفظ مراجع محلية، ويُحترم نقل الملف أو حذفه.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="developer">
+  <h2><span class="n">٠٣</span>مساحة المطوّر</h2>
+  <div class="grid">
+    <div class="card" data-tone="cyan">
+      <h3>الطرفية المدمجة</h3>
+      <p>طرفية تفاعلية حقيقية (SwiftTerm) داخل الجزيرة.</p>
+      <ol class="steps">
+        <li>افتح قسم المطوّر واختر الطرفية.</li>
+        <li>اكتب الأوامر؛ الجلسة تبقى عند التنقل بين الأقسام.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="cyan">
+      <h3>مشغّل الأوامر</h3>
+      <p>أوامر zsh غير تفاعلية مع التقاط الخرج وإمكانية الإيقاف.</p>
+      <ol class="steps">
+        <li>اختر مجلد العمل.</li>
+        <li>اكتب الأمر واضغط تشغيل؛ استخدم إيقاف للمقاطعة.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="violet">
+      <h3>أدوات الكود</h3>
+      <p>JSON وترميزات ودوال تجزئة ووقت — بنقرة واحدة لكل منها.</p>
+      <ol class="steps">
+        <li>الصق النص ثم اضغط JSON أو Minify أو Base64 أو URL أو SHA-256 أو UUID أو Epoch أو Regex.</li>
+        <li>زر التبديل يعيد النتيجة مدخلًا جديدًا.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="rose">
+      <h3>Git وطلبات السحب</h3>
+      <p>حالة أي مجلد، وطلبات السحب عبر GitHub CLI.</p>
+      <ol class="steps">
+        <li>لطلبات السحب ثبّت GitHub CLI: <code>brew install gh</code> ثم <code>gh auth login</code>.</li>
+        <li>اختر مجلد مشروعك في قسم Git.</li>
+        <li>حدّث لرؤية الفرع والتغييرات والالتزامات؛ انتقل إلى GitHub PR لطلبات السحب.</li>
+      </ol>
+      <div class="note">بدون <code>gh</code> مثبتًا ومسجّلًا، يخبرك القسم بذلك بوضوح بدل الفشل الصامت.</div>
+    </div>
+    <div class="card" data-tone="mint">
+      <h3>المقتطفات</h3>
+      <p>الأوامر والقوالب التي تعيد كتابتها دائمًا.</p>
+      <ol class="steps">
+        <li>أضف مقتطفًا باسم ونص.</li>
+        <li>انقره في أي وقت لنسخه إلى الحافظة.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="amber">
+      <h3>واجهة النشاط (اختيارية)</h3>
+      <p>دع سكربتاتك ترسل تقدم البناء والمهام إلى الجزيرة.</p>
+      <ol class="steps">
+        <li>فعّل واجهة النشاط من الإعدادات؛ يُنشأ رمز وصول متغير.</li>
+        <li>أرسل الأحداث إلى النقطة المحلية من سكربتاتك أو خطافاتك.</li>
+        <li>يظهر التقدم والاكتمال كنشاط على الجزيرة.</li>
+      </ol>
+      <div class="note">الواجهة محلية فقط وتبقى معطلة حتى تفعّلها.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ai">
+  <h2><span class="n">٠٤</span>استخدام الذكاء الاصطناعي دون تجسس</h2>
+  <div class="grid">
+    <div class="card" data-tone="cyan">
+      <h3>القراءة المحلية</h3>
+      <p>الرموز من سجلات Codex وClaude الموجودة على جهازك.</p>
+      <ol class="steps">
+        <li>استخدم Codex أو Claude CLI كالمعتاد؛ لا إعداد مطلوب.</li>
+        <li>افتح قسم الاستهلاك — رموز اليوم والأسبوع وإعادة استخدام الكاش والنشاط الأسبوعي.</li>
+        <li>إن كانت سجلاتك في مكان آخر فوجّه الأداة إلى ذلك المجلد.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="violet">
+      <h3>حدود حساب Codex الحيّة</h3>
+      <p>نوافذ حدود الحساب الحالية، عند الطلب.</p>
+      <ol class="steps">
+        <li>ثبّت Codex CLI وسجّل الدخول.</li>
+        <li>اضغط «حدود الحساب الحيّة» في قسم الاستهلاك.</li>
+        <li>تظهر النوافذ ومواعيد التجديد ووقت القراءة في لوحة مستقلة لا تشترط وجود سجلات محلية.</li>
+      </ol>
+      <div class="note">لا تُستخرج نصوص المحادثات ولا مفاتيح الدخول. الرموز المحلية ليست فاتورة.</div>
+    </div>
+  </div>
+</section>
+
+<section id="utilities">
+  <h2><span class="n">٠٥</span>الأدوات اليومية المتقدمة</h2>
+  <div class="grid">
+    <div class="card" data-tone="cyan">
+      <h3>الطقس</h3>
+      <p>الأحوال والتوقعات (Open-Meteo).</p>
+      <ol class="steps">
+        <li>افتح أداة الطقس وابحث عن مدينتك.</li>
+        <li>يظهر وقت آخر تحديث دائمًا؛ أعد المحاولة عند أخطاء الشبكة.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="violet">
+      <h3>الترجمة</h3>
+      <p>ترجمة Apple على الجهاز، macOS 15+.</p>
+      <ol class="steps">
+        <li>افتح أداة الترجمة على macOS 15 فما أحدث.</li>
+        <li>نزّل زوج اللغات عندما يطلب macOS ذلك.</li>
+        <li>على macOS 13–14 تشرح الأداة أن النظام لا يدعمها.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="amber">
+      <h3>الأسهم</h3>
+      <p>علامات عبر Alpha Vantage بمفتاحك الخاص.</p>
+      <ol class="steps">
+        <li>أنشئ مفتاح Alpha Vantage مجانيًا والصقه في الأداة؛ يُحفظ في Keychain.</li>
+        <li>أضف الرموز وحدّث؛ يظهر تاريخ السعر.</li>
+        <li>التنبيهات تقارن السعر عند التحديث — قد يكون آخر إغلاق لا لحظيًا.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="rose">
+      <h3>الموسيقى والكلمات</h3>
+      <p>تحكم وغلاف وكلمات لـ Apple Music أو Spotify.</p>
+      <ol class="steps">
+        <li>شغّل Apple Music أو Spotify وشغّل مقطعًا.</li>
+        <li>اسمح بالأتمتة عند طلب macOS؛ يظهر التحكم والغلاف.</li>
+        <li>اطلب الكلمات (LRCLIB) — متزامنة عند توفرها أو نصية.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="monitoring">
+  <h2><span class="n">٠٦</span>المراقبة — كلها اختيارية</h2>
+  <p class="lead">كل مراقب يطلب إذن macOS الخاص به وتبقى معطلة حتى تفعّلها.</p>
+  <div class="grid">
+    <div class="card" data-tone="amber">
+      <h3>التنزيلات والأقراص</h3>
+      <ol class="steps">
+        <li>فعّل مراقبة التنزيلات لتصلك إشارة «ملف جديد» في مجلد التنزيلات.</li>
+        <li>تظهر الأقراص القابلة للإزالة وتختفي عند وصله وفصلها.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="mint">
+      <h3>مرآة الكاميرا</h3>
+      <ol class="steps">
+        <li>افتح أداة الكاميرا واسمح بالوصول.</li>
+        <li>تُستخدم الكاميرا فقط أثناء فتح المرآة.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="violet">
+      <h3>التقويم والتذكيرات</h3>
+      <ol class="steps">
+        <li>اربط التقويم لرؤية الأحداث القادمة.</li>
+        <li>لا تُنشأ التذكيرات إلا عندما تضيف واحدة بنفسك.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="coral">
+      <h3>Caps Lock</h3>
+      <ol class="steps">
+        <li>فعّله من الإعدادات؛ تعكس الجزيرة حالة المفتاح.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="settings">
+  <h2><span class="n">٠٧</span>الإعدادات</h2>
+  <div class="grid">
+    <div class="card" data-tone="cyan">
+      <h3>الجزيرة</h3>
+      <ol class="steps">
+        <li>الحجم: أصغر وافتراضي وأكبر مقاس مدعوم.</li>
+        <li>الحركة: تشغيل/إيقاف مع التحكم بالمدة؛ يُحترم تقليل الحركة دائمًا.</li>
+        <li>الشاشة: اختر الشاشة التي تحمل الجزيرة.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="violet">
+      <h3>المظهر واللغة</h3>
+      <ol class="steps">
+        <li>ألوان التمييز، مع حفظ اختيارك المخصص.</li>
+        <li>اللغة: الإنجليزية افتراضية، وعربية كاملة بتخطيط من اليمين لليسار.</li>
+        <li>Liquid Glass على macOS 26+ وخامة النظام على الأقدم.</li>
+      </ol>
+    </div>
+    <div class="card" data-tone="rose">
+      <h3>بدء التشغيل</h3>
+      <ol class="steps">
+        <li>فعّل «التشغيل عند الدخول»؛ يستخدم آلية عناصر الدخول القياسية في macOS.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Notchest 0.5 — ترخيص MIT. <a href="https://github.com/H0777/Notchest">خطة الوصول إلى 1.0</a> وحالة الميزات الصادقة موجودة في المستودع.
+</footer>
+
+</div>
+</body>
+</html>

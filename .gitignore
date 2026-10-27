@@ -1,0 +1,22 @@
+# Build products and local IDE state
+.build/
+.swiftpm/
+dist/
+DerivedData/
+*.app/
+*.dSYM/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+.mimosa/
+
+# Local credentials and signing files
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+
+# Regenerated icon working files
+.brand-build/
