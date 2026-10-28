@@ -5,6 +5,8 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-28
+
 ### Changed
 
 - Replace the pale app icon with the original Aurora Orbit identity: vivid
@@ -12,8 +14,10 @@ All notable changes to Notchest are documented here. The format follows
 - Update all ten macOS icon representations, the in-app mark, editable SVGs,
   website icon, repository banner and social preview. Small icon sizes use a
   heavier silhouette and simpler shading for legibility.
+- Read the website version and download URLs from the app bundle metadata, so
+  the app, site and release assets stay aligned.
 
-### Added (toward 0.6)
+### Development and release tooling
 
 - Community and safety files: `SECURITY.md` (private vulnerability
   reporting), `CONTRIBUTING.md`, pull-request and feature-request templates.
@@ -22,7 +26,15 @@ All notable changes to Notchest are documented here. The format follows
 - `Scripts/measure.sh` and `PERFORMANCE.md`: repeatable performance sampling
   with the recorded idle baseline (≈1% CPU, 99 MB peak on Apple Silicon).
 
-### Changed (toward 0.6)
+### Fixed before release
+
+- Find GitHub CLI in `~/.local/bin` when Finder launches the app with a minimal
+  PATH; keep explicit PATH entries first. Support user-local Codex CLI too.
+- Resolve Regex match totals and text-count labels in the selected language.
+- Report the actual bundle version to Codex instead of the old 0.3 identifier.
+- Add two regression checks for CLI discovery and developer-tool summaries.
+
+### Language and reliability
 
 - Every service message now resolves to exactly one interface language —
   downloads and drive notifications, weather, stocks, translation, developer

@@ -183,8 +183,11 @@ final class DeveloperModel: ObservableObject {
             guard !pattern.isEmpty else { throw invalid("أدخل التعبير النمطي", "Enter a regular expression") }
             let expression = try NSRegularExpression(pattern: pattern)
             let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
-            return matches.compactMap { Range($0.range, in: text).map { String(text[$0]) } }.joined(separator: "\n") + "\n\n\(matches.count) matches"
-        case "Count": return "Characters: \(text.count)\nWords: \(text.split(whereSeparator: \.isWhitespace).count)\nUTF-8 bytes: \(text.utf8.count)\nLines: \(text.components(separatedBy: .newlines).count)"
+            return matches.compactMap { Range($0.range, in: text).map { String(text[$0]) } }.joined(separator: "\n") + "\n\n" + ServiceText("عدد المطابقات: \(matches.count)", "\(matches.count) matches").resolved(arabicUI: arabicUI)
+        case "Count": return ServiceText(
+            "المحارف: \(text.count)\nالكلمات: \(text.split(whereSeparator: \.isWhitespace).count)\nبايتات UTF-8: \(text.utf8.count)\nالأسطر: \(text.components(separatedBy: .newlines).count)",
+            "Characters: \(text.count)\nWords: \(text.split(whereSeparator: \.isWhitespace).count)\nUTF-8 bytes: \(text.utf8.count)\nLines: \(text.components(separatedBy: .newlines).count)"
+        ).resolved(arabicUI: arabicUI)
         default: return text
         }
     }
@@ -293,15 +296,24 @@ final class DeveloperModel: ObservableObject {
         }
     }
 
+    nonisolated static func githubExecutable(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        let paths = (environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/gh" }
+            + [homeDirectory.appendingPathComponent(".local/bin/gh").path,
+               "/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+        return paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+            .map { URL(fileURLWithPath: $0) }
+    }
+
     nonisolated static func fetchPulls(directory: URL, arabicUI: Bool) -> PullResult {
-        let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/gh" }
-            + ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
-        guard let executable = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        guard let executable = githubExecutable() else {
             return PullResult(error: ServiceText("ثبّت GitHub CLI وسجّل الدخول إليه", "Install GitHub CLI (gh) and sign in").resolved(arabicUI: arabicUI))
         }
         let process = Process()
         let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
+        process.executableURL = executable
         process.currentDirectoryURL = directory
         process.arguments = ["pr", "list", "--limit", "30", "--json", "number,title,url,isDraft,headRefName"]
         var environment = ProcessInfo.processInfo.environment

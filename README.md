@@ -66,7 +66,7 @@ and what remains on the roadmap.
 
 ## Download
 
-1. Get **Notchest-0.5.0.dmg** from [Releases](https://github.com/H0777/Notchest/releases/latest).
+1. Get **Notchest-0.6.0.dmg** from [Releases](https://github.com/H0777/Notchest/releases/latest).
 2. Open it and drag **Notchest** into **Applications**.
 3. Launch the app and choose the tools you want to connect.
 

@@ -12,7 +12,7 @@ English is primary; a short Arabic instruction appears beneath it. The 760×500 
 ./release.sh
 ```
 
-The command builds the app and creates `dist/Notchest-0.5.0.dmg` and its portable ZIP. On first use it installs the pinned Python build tools in the ignored `.build/dmg-tools` environment. Python 3.9+ and internet access are needed for that first installation. Users installing Notchest do not need Python or these tools.
+The command builds the app and creates `dist/Notchest-0.6.0.dmg` and its portable ZIP. On first use it installs the pinned Python build tools in the ignored `.build/dmg-tools` environment. Python 3.9+ and internet access are needed for that first installation. Users installing Notchest do not need Python or these tools.
 
 The script checks both packages before replacing previous release artifacts. The DMG is mounted read-only to verify its signature, executable permissions, matching binaries and icon, Applications link, background and saved Finder layout. ZIP contents are extracted and their signature checked too. The script does not upload releases or request permission to control Finder.
 

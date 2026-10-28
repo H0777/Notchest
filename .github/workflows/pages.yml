@@ -3,7 +3,7 @@ name: Deploy documentation site
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'Scripts/build-site.py', 'Scripts/check-site.py', '.github/workflows/pages.yml']
+    paths: ['site/**', 'Resources/Info.plist', 'Scripts/build-site.py', 'Scripts/check-site.py', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
