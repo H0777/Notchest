@@ -1,0 +1,54 @@
+name: Release
+
+# Building release artifacts in CI guarantees the published DMG/ZIP match the
+# exact tagged source. The workflow needs no signing secrets; the app is
+# ad-hoc signed until Developer-ID notarization lands on the roadmap.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+      - name: Build, test, and check
+        run: |
+          swift build
+          swift test
+          ./check.sh
+      - name: Package DMG and ZIP
+        run: ./release.sh
+      - name: Compute checksums
+        id: sums
+        run: |
+          {
+            echo '```'
+            shasum -a 256 dist/Notchest-*.dmg dist/Notchest-*.zip | sed 's|dist/||'
+            echo '```'
+          } > checksums.md
+      - name: Create release with artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            dist/Notchest-"$VERSION".dmg dist/Notchest-"$VERSION".zip \
+            --title "Notchest $GITHUB_REF_NAME" \
+            --notes-file - <<EOF
+          Built from tag \`$GITHUB_REF_NAME\` by CI; build, tests, and all
+          checks passed before packaging.
+
+          **Install:** open the DMG, drag Notchest onto Applications, eject.
+          **First open:** unsigned build — confirm once via right-click →
+          Open (macOS 13–14) or System Settings → Privacy & Security →
+          Open Anyway (macOS 15+).
+
+          SHA-256:
+          $(cat checksums.md)
+          EOF
