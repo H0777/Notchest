@@ -90,7 +90,10 @@ cd Notchest
 ```
 
 Open `Package.swift` in Xcode to work on the app. `swift test` runs the XCTest
-suite when a full Xcode installation is available. `./release.sh` packages a ZIP.
+suite when a full Xcode installation is available. `./release.sh` creates a branded
+drag-to-Applications DMG and a portable ZIP, and verifies both packages. The first
+packaging run installs pinned Python 3.9+ tools in `.build/dmg-tools`; see the
+[installer design and build guide](Brand/Installer/README.md).
 
 ## Documentation
 

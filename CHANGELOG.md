@@ -33,6 +33,13 @@ All notable changes to Notchest are documented here. The format follows
 
 ### Added
 
+- A branded drag-to-Applications DMG with Aurora Orbit artwork, Retina assets,
+  fixed Finder layout, a volume icon, and English/Arabic installation guidance.
+- Release-package verification covering the mounted app signature, executable
+  permissions, Applications destination, Finder layout and unchanged app files.
+  Release tooling uses isolated, pinned Python dependencies; existing artifacts
+  are replaced only after both the ZIP and DMG pass their checks.
+
 - Redesigned English and Arabic landing pages with a searchable, filterable
   39-feature gallery: 25 captures of the running app with disclosed sample
   data, full-resolution viewing, and per-feature setup notes. Detailed setup
