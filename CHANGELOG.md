@@ -5,6 +5,11 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- Add prominent bilingual first-launch guidance beside download links, in the
+  setup guides and README, and in release notes for the current ad-hoc build.
+
 ## [0.6.0] — 2026-10-28
 
 ### Changed

@@ -72,7 +72,11 @@ and what remains on the roadmap.
 
 A portable ZIP is available alongside the DMG. This is a development release;
 Developer ID signing and Apple notarization remain on the [roadmap](ROADMAP.md).
-See the [setup guide](https://h0777.github.io/Notchest/guide.html#start) before installing.
+**If macOS says “Apple could not verify Notchest”:** after downloading from the official
+release and moving it to Applications, try opening it once. If you trust the source,
+open **System Settings → Privacy & Security → Security → Open Anyway** beside Notchest,
+then confirm **Open**. If the button is missing, try opening the app again first.
+[Apple’s instructions](https://support.apple.com/en-gb/102445) · [First-launch help](https://h0777.github.io/Notchest/#first-open).
 
 The packaged build is for **Apple Silicon**. Source targets **macOS 13+**;
 Apple Translation needs 15+, and Liquid Glass navigation needs 26+.
