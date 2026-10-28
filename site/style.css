@@ -1081,3 +1081,10 @@ dialog::backdrop {
 [dir=rtl] .hero-capture figcaption {
   direction:rtl
 }
+
+/* First-launch guidance uses the same quiet accent as release notes. */
+.first-open-link a { color:#c4b4eb; text-decoration:underline; text-underline-offset:3px; }
+#first-open { scroll-margin-top:100px; }
+#first-open ol { padding-inline-start:24px; color:var(--muted); font-size:13px; line-height:1.9; }
+#first-open li { margin-block:9px; padding-inline-start:4px; }
+#first-open a { color:#c4b4eb; text-decoration:underline; text-underline-offset:3px; }
