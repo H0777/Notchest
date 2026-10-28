@@ -5,6 +5,24 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+### Added (toward 0.6)
+
+- Community and safety files: `SECURITY.md` (private vulnerability
+  reporting), `CONTRIBUTING.md`, pull-request and feature-request templates.
+- Automated releases: pushing a `v*` tag builds, tests, checks, and publishes
+  the DMG/ZIP release with checksums from CI.
+- `Scripts/measure.sh` and `PERFORMANCE.md`: repeatable performance sampling
+  with the recorded idle baseline (≈1% CPU, 99 MB peak on Apple Silicon).
+
+### Changed (toward 0.6)
+
+- Every service message now resolves to exactly one interface language —
+  downloads and drive notifications, weather, stocks, translation, developer
+  tool errors, GitHub CLI guidance, and common network failures follow the
+  in-app language choice instead of showing both languages concatenated
+  (NT-007). Checks grow from 34 to 36 to keep it that way.
+- `main` is branch-protected: changes require a green CI.
+
 ### Added
 
 - Redesigned English and Arabic landing pages with a searchable, filterable
