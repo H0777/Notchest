@@ -9,8 +9,8 @@
     <key>CFBundleIdentifier</key><string>dev.notchest.island</string>
     <key>CFBundleExecutable</key><string>Notchest</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.5.0</string>
-    <key>CFBundleVersion</key><string>5</string>
+    <key>CFBundleShortVersionString</key><string>0.6.0</string>
+    <key>CFBundleVersion</key><string>6</string>
     <key>CFBundleIconFile</key><string>Notchest</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>

@@ -14,8 +14,9 @@ gates.
 
 - Visual polish is implemented, but screen configurations, sleep/wake, older
   systems, and hardware combinations still need validation.
-- Localization is incomplete in service-generated events and errors. Some
-  download and drive events are hard-coded in Arabic.
+- Core service messages now follow the selected language. OS-provided errors
+  and already-displayed errors or activity entries still need consistent
+  handling when the language changes during a session.
 - Cursor/Copilot, trustworthy cost reporting, and native agent-hook and
   approval flows are incomplete or unimplemented.
 - Daily integrations need account, permission, offline, and

@@ -8,7 +8,7 @@ Thanks for helping — pull requests that fit the roadmap land fastest.
 git clone https://github.com/H0777/Notchest.git
 cd Notchest
 swift build          # or open Package.swift in Xcode 26+
-./check.sh           # must pass (36 checks)
+./check.sh           # must pass (38 checks)
 ```
 
 `swift test` needs a full Xcode installation; command-line tools alone do not

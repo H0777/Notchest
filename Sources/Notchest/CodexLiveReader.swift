@@ -27,6 +27,7 @@ enum CodexLiveReader {
     static func executable() -> URL? {
         let fromPath = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/codex" }
         let candidates = fromPath + [
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/codex").path,
             "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
             "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
             "/opt/homebrew/bin/codex", "/usr/local/bin/codex"
@@ -96,7 +97,8 @@ enum CodexLiveReader {
             }
             return results
         }
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "notchest", "title": "Notchest", "version": "0.3.0"]]])
+        let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development"
+        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "notchest", "title": "Notchest", "version": clientVersion]]])
         let initialized = try readUntil(ids: [1])
         guard initialized[1]?.isEmpty == false else { throw CodexLiveError.failed }
         try send(["method": "initialized", "params": [:]])

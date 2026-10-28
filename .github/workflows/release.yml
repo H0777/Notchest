@@ -1,14 +1,17 @@
 name: Release
 
-# Building release artifacts in CI guarantees the published DMG/ZIP match the
-# exact tagged source. The workflow needs no signing secrets; the app is
-# ad-hoc signed until Developer-ID notarization lands on the roadmap.
+# Published assets are built and verified from the exact release tag.
+# Ad-hoc signed until Developer ID signing and notarization are available.
 on:
   push:
     tags: ['v*']
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -17,38 +20,39 @@ jobs:
     steps:
       - name: Check out sources
         uses: actions/checkout@v4
+      - name: Set up packaging Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate tag, version and release notes
+        run: |
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          test "$GITHUB_REF_NAME" = "v$VERSION"
+          test -s "Releases/$VERSION.md"
+          python3 Scripts/check-site.py
       - name: Build, test, and check
         run: |
           swift build
           swift test
           ./check.sh
-      - name: Package DMG and ZIP
+      - name: Package and verify DMG and ZIP
         run: ./release.sh
-      - name: Compute checksums
-        id: sums
+      - name: Prepare release notes and checksums
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          (cd dist && shasum -a 256 "Notchest-$VERSION.dmg" "Notchest-$VERSION.zip") > dist/SHA256SUMS.txt
+          cp "Releases/$VERSION.md" release-notes.md
           {
-            echo '```'
-            shasum -a 256 dist/Notchest-*.dmg dist/Notchest-*.zip | sed 's|dist/||'
-            echo '```'
-          } > checksums.md
-      - name: Create release with artifacts
+            printf '\n### SHA-256\n\n```text\n'
+            cat dist/SHA256SUMS.txt
+            printf '```\n'
+          } >> release-notes.md
+      - name: Publish release with verified artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" \
-            dist/Notchest-"$VERSION".dmg dist/Notchest-"$VERSION".zip \
-            --title "Notchest $GITHUB_REF_NAME" \
-            --notes-file - <<EOF
-          Built from tag \`$GITHUB_REF_NAME\` by CI; build, tests, and all
-          checks passed before packaging.
-
-          **Install:** open the DMG, drag Notchest onto Applications, eject.
-          **First open:** unsigned build — confirm once via right-click →
-          Open (macOS 13–14) or System Settings → Privacy & Security →
-          Open Anyway (macOS 15+).
-
-          SHA-256:
-          $(cat checksums.md)
-          EOF
+            "dist/Notchest-$VERSION.dmg" "dist/Notchest-$VERSION.zip" dist/SHA256SUMS.txt \
+            --verify-tag --latest --title "Notchest $VERSION" \
+            --notes-file release-notes.md

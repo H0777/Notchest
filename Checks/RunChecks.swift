@@ -148,8 +148,29 @@ struct RunChecks {
         }
         try check("Epoch and regex tools handle valid and invalid input") {
             try expect(try DeveloperModel.transform("Epoch", text: "0") == "1970-01-01T00:00:00Z")
-            try expect(try DeveloperModel.transform("Regex", text: "Swift 13 and 27", pattern: "[0-9]+") == "13\n27\n\n2 matches")
+            try expect(try DeveloperModel.transform("Regex", text: "Swift 13 and 27", pattern: "[0-9]+", arabicUI: false) == "13\n27\n\n2 matches")
             do { _ = try DeveloperModel.transform("Regex", text: "x", pattern: "["); preconditionFailure("Invalid regex accepted") } catch {}
+        }
+        try check("Developer summaries follow the selected interface language") {
+            let arabic = try DeveloperModel.transform("Regex", text: "Swift 13 and 27", pattern: "[0-9]+", arabicUI: true)
+            precondition(arabic == "13\n27\n\nعدد المطابقات: 2")
+            let count = try DeveloperModel.transform("Count", text: "one two", arabicUI: true)
+            precondition(count.contains("الكلمات: 2") && !count.contains("Words"))
+            let english = try DeveloperModel.transform("Count", text: "one two", arabicUI: false)
+            precondition(english.contains("Words: 2") && !ServiceText.containsArabicLetters(english))
+        }
+        try check("GitHub CLI is found outside the minimal Finder launch PATH") {
+            let home = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-cli-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: home) }
+            let local = home.appendingPathComponent(".local/bin/gh")
+            try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: local)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: local.path)
+            precondition(DeveloperModel.githubExecutable(environment: ["PATH": "/usr/bin:/bin"], homeDirectory: home) == local)
+            let preferred = home.appendingPathComponent("preferred/gh")
+            try FileManager.default.createDirectory(at: preferred.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: local, to: preferred)
+            precondition(DeveloperModel.githubExecutable(environment: ["PATH": preferred.deletingLastPathComponent().path], homeDirectory: home) == preferred)
         }
         try check("Calculator respects precedence, parentheses and unary minus") {
             try expect(try Arithmetic.evaluate("(12 + 8) × 3") == 60)

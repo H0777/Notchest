@@ -5,7 +5,19 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
-### Added (toward 0.6)
+## [0.6.0] — 2026-10-28
+
+### Changed
+
+- Replace the pale app icon with the original Aurora Orbit identity: vivid
+  turquoise, blue, violet and pink glass around a warm coral nucleus on navy.
+- Update all ten macOS icon representations, the in-app mark, editable SVGs,
+  website icon, repository banner and social preview. Small icon sizes use a
+  heavier silhouette and simpler shading for legibility.
+- Read the website version and download URLs from the app bundle metadata, so
+  the app, site and release assets stay aligned.
+
+### Development and release tooling
 
 - Community and safety files: `SECURITY.md` (private vulnerability
   reporting), `CONTRIBUTING.md`, pull-request and feature-request templates.
@@ -14,7 +26,15 @@ All notable changes to Notchest are documented here. The format follows
 - `Scripts/measure.sh` and `PERFORMANCE.md`: repeatable performance sampling
   with the recorded idle baseline (≈1% CPU, 99 MB peak on Apple Silicon).
 
-### Changed (toward 0.6)
+### Fixed before release
+
+- Find GitHub CLI in `~/.local/bin` when Finder launches the app with a minimal
+  PATH; keep explicit PATH entries first. Support user-local Codex CLI too.
+- Resolve Regex match totals and text-count labels in the selected language.
+- Report the actual bundle version to Codex instead of the old 0.3 identifier.
+- Add two regression checks for CLI discovery and developer-tool summaries.
+
+### Language and reliability
 
 - Every service message now resolves to exactly one interface language —
   downloads and drive notifications, weather, stocks, translation, developer
@@ -24,6 +44,13 @@ All notable changes to Notchest are documented here. The format follows
 - `main` is branch-protected: changes require a green CI.
 
 ### Added
+
+- A branded drag-to-Applications DMG with Aurora Orbit artwork, Retina assets,
+  fixed Finder layout, a volume icon, and English/Arabic installation guidance.
+- Release-package verification covering the mounted app signature, executable
+  permissions, Applications destination, Finder layout and unchanged app files.
+  Release tooling uses isolated, pinned Python dependencies; existing artifacts
+  are replaced only after both the ZIP and DMG pass their checks.
 
 - Redesigned English and Arabic landing pages with a searchable, filterable
   39-feature gallery: 25 captures of the running app with disclosed sample
