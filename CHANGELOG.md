@@ -5,6 +5,14 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the pale app icon with the original Aurora Orbit identity: vivid
+  turquoise, blue, violet and pink glass around a warm coral nucleus on navy.
+- Update all ten macOS icon representations, the in-app mark, editable SVGs,
+  website icon, repository banner and social preview. Small icon sizes use a
+  heavier silhouette and simpler shading for legibility.
+
 ### Added (toward 0.6)
 
 - Community and safety files: `SECURITY.md` (private vulnerability

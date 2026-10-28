@@ -42,6 +42,20 @@ enum NotchestPalette {
         case .settings: return notchestAccent
         }
     }
+    // Aurora Orbit identity. These colors also drive the editable SVG and icon generator.
+    static let brandOrbit: [Color] = [
+        Color(red: 0.07, green: 0.90, blue: 0.83),
+        Color(red: 0.09, green: 0.81, blue: 1),
+        Color(red: 0.27, green: 0.41, blue: 1),
+        Color(red: 0.63, green: 0.28, blue: 1),
+        Color(red: 1, green: 0.28, blue: 0.62)
+    ]
+    static let brandNucleus: [Color] = [
+        Color(red: 1, green: 0.89, blue: 0.64),
+        Color(red: 1, green: 0.61, blue: 0.41),
+        Color(red: 1, green: 0.29, blue: 0.51),
+        Color(red: 0.72, green: 0.18, blue: 0.82)
+    ]
     static let ink = Color(red: 0.045, green: 0.065, blue: 0.105)
     static let secondary = Color.white.opacity(0.66)
 
@@ -53,10 +67,10 @@ enum NotchestPalette {
             ring.transform(using: transform)
             ring.transform(using: AffineTransform(rotationByDegrees: 32))
             ring.transform(using: AffineTransform(translationByX: 10, byY: 10))
-            ring.lineWidth = 1.8
+            ring.lineWidth = 2.1
             ring.stroke()
             NSColor.black.setFill()
-            NSBezierPath(ovalIn: NSRect(x: 7.8, y: 7.8, width: 4.4, height: 4.4)).fill()
+            NSBezierPath(ovalIn: NSRect(x: 7.4, y: 7.4, width: 5.2, height: 5.2)).fill()
             return true
         }
         image.isTemplate = true
@@ -72,12 +86,21 @@ struct NotchestMark: View {
             let size = min(geometry.size.width, geometry.size.height)
             ZStack {
                 Ellipse()
-                    .stroke(monochrome ? LinearGradient(colors: [notchestAccent, notchestAccent], startPoint: .top, endPoint: .bottom) : LinearGradient(colors: [.white, Color(red: 0.69, green: 0.83, blue: 1), Color(red: 0.48, green: 0.55, blue: 0.9)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: size * 0.085)
+                    .stroke(
+                        LinearGradient(
+                            colors: monochrome ? [notchestAccent, notchestAccent] : NotchestPalette.brandOrbit,
+                            startPoint: .leading, endPoint: .trailing
+                        ),
+                        lineWidth: size * 0.109
+                    )
                     .frame(width: size * 0.83, height: size * 0.49)
                     .rotationEffect(.degrees(-32))
                 Circle()
-                    .fill(LinearGradient(colors: monochrome ? [notchestAccent, notchestAccent] : [.white, Color(red: 0.47, green: 0.76, blue: 1), Color(red: 0.27, green: 0.40, blue: 0.93)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: size * 0.24, height: size * 0.24)
+                    .fill(LinearGradient(
+                        colors: monochrome ? [notchestAccent, notchestAccent] : NotchestPalette.brandNucleus,
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ))
+                    .frame(width: size * 0.26, height: size * 0.26)
             }.frame(width: geometry.size.width, height: geometry.size.height)
         }
         .accessibilityHidden(true)
