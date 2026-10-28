@@ -19,16 +19,19 @@ struct StockQuote: Equatable {
     }
 }
 
-enum StockError: LocalizedError {
+enum StockError: Error {
     case missingKey, invalidKey, noQuote, requestFailed
-    var errorDescription: String? {
+
+    var text: ServiceText {
         switch self {
-        case .missingKey: return "Add an Alpha Vantage API key / أضف مفتاح Alpha Vantage"
-        case .invalidKey: return "Keychain access failed / تعذّر الوصول إلى سلسلة المفاتيح"
-        case .noQuote: return "No quote returned; check the symbol or API limit / لم يُرجع المزود سعرًا؛ تحقّق من الرمز أو حد الطلبات"
-        case .requestFailed: return "Stock data request failed / تعذّر طلب بيانات السهم"
+        case .missingKey: return ServiceText("أضف مفتاح Alpha Vantage", "Add an Alpha Vantage API key")
+        case .invalidKey: return ServiceText("تعذّر الوصول إلى سلسلة المفاتيح", "Keychain access failed")
+        case .noQuote: return ServiceText("لم يُرجع المزوّد سعرًا؛ تحقّق من الرمز أو حد الطلبات", "No quote returned; check the symbol or API limit")
+        case .requestFailed: return ServiceText("تعذّر طلب بيانات السهم", "Stock data request failed")
         }
     }
+
+    func message(arabicUI: Bool) -> String { text.resolved(arabicUI: arabicUI) }
 }
 
 enum StockKeychain {
@@ -78,6 +81,8 @@ final class StocksModel: ObservableObject {
     @Published var alertAbove = true
     @Published var alerts: [String: StockAlert]
     var onAlert: ((String, String) -> Void)?
+    /// Set from the app's language choice; stock wording resolves through it.
+    var arabicUI = true
     private var fired = Set<String>()
     private var task: Task<Void, Never>?
     private let defaults: UserDefaults
@@ -93,20 +98,20 @@ final class StocksModel: ObservableObject {
 
     func saveKey() {
         let key = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty, key.count <= 256 else { error = StockError.missingKey.localizedDescription; return }
+        guard !key.isEmpty, key.count <= 256 else { error = StockError.missingKey.message(arabicUI: arabicUI); return }
         do { try StockKeychain.save(key); hasKey = true; defaults.set(true, forKey: "stockHasKey"); keyInput = ""; error = nil }
-        catch { self.error = StockError.invalidKey.localizedDescription }
+        catch { self.error = StockError.invalidKey.message(arabicUI: arabicUI) }
     }
     func removeKey() {
         do { try StockKeychain.delete(); hasKey = false; defaults.set(false, forKey: "stockHasKey"); quotes = [:]; error = nil }
-        catch { self.error = StockError.invalidKey.localizedDescription }
+        catch { self.error = StockError.invalidKey.message(arabicUI: arabicUI) }
     }
     func addSymbol() {
         let symbol = newSymbol.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
-        guard !symbol.isEmpty, symbol.count <= 16, symbol.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { error = "Invalid ticker / رمز السهم غير صالح"; return }
+        guard !symbol.isEmpty, symbol.count <= 16, symbol.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { error = ServiceText("رمز السهم غير صالح", "Invalid ticker").resolved(arabicUI: arabicUI); return }
         if !symbols.contains(symbol) {
-            guard symbols.count < 20 else { error = "Watchlist is full / قائمة المتابعة ممتلئة"; return }
+            guard symbols.count < 20 else { error = ServiceText("قائمة المتابعة ممتلئة", "Watchlist is full").resolved(arabicUI: arabicUI); return }
             symbols.append(symbol); defaults.set(symbols, forKey: "stockSymbols")
         }
         selected = symbol; newSymbol = ""; error = nil
@@ -116,7 +121,7 @@ final class StocksModel: ObservableObject {
         defaults.set(symbols, forKey: "stockSymbols"); saveAlerts(); if selected == symbol { selected = symbols.first ?? "" }
     }
     func setAlert() {
-        guard !selected.isEmpty, let number = Double(alertInput), number.isFinite, number > 0 else { error = "Enter a positive price / أدخل سعرًا صحيحًا"; return }
+        guard !selected.isEmpty, let number = Double(alertInput), number.isFinite, number > 0 else { error = ServiceText("أدخل سعرًا صحيحًا", "Enter a positive price").resolved(arabicUI: arabicUI); return }
         alerts[selected] = StockAlert(threshold: number, above: alertAbove); fired.remove(selected); saveAlerts(); error = nil
     }
     func removeAlert() { alerts.removeValue(forKey: selected); fired.remove(selected); saveAlerts() }
@@ -126,10 +131,10 @@ final class StocksModel: ObservableObject {
         let symbol = selected
         guard !symbol.isEmpty, !loading else { return }
         let key: String
-        do { key = try StockKeychain.load() } catch { self.error = error.localizedDescription; return }
+        do { key = try StockKeychain.load() } catch { self.error = (error as? StockError)?.message(arabicUI: arabicUI) ?? error.localizedDescription; return }
         var components = URLComponents(string: "https://www.alphavantage.co/query")!
         components.queryItems = [URLQueryItem(name: "function", value: "GLOBAL_QUOTE"), URLQueryItem(name: "symbol", value: symbol), URLQueryItem(name: "apikey", value: key)]
-        guard let url = components.url else { error = StockError.requestFailed.localizedDescription; return }
+        guard let url = components.url else { error = StockError.requestFailed.message(arabicUI: arabicUI); return }
         loading = true; error = nil; task?.cancel()
         task = Task { [weak self] in
             do {
@@ -151,7 +156,7 @@ final class StocksModel: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.loading = false
-                self?.error = (error as? StockError)?.localizedDescription ?? StockError.requestFailed.localizedDescription
+                self?.error = (error as? StockError)?.message(arabicUI: self?.arabicUI ?? true) ?? ServiceText.network(error).resolved(arabicUI: self?.arabicUI ?? true)
             }
         }
     }

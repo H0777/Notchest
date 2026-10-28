@@ -13,6 +13,8 @@ final class SystemMonitor: ObservableObject {
         didSet { defaults.set(watchCapsLock, forKey: "watchCapsLock"); if started { configureCapsLock() } }
     }
     @Published var problem: String?
+    /// Set from the app's language choice; all monitor wording resolves through it.
+    var arabicUI = true
     var onEvent: ((String, String, URL?, String) -> Void)?
     private let defaults: UserDefaults
     private var downloadsSource: DispatchSourceFileSystemObject?
@@ -65,7 +67,7 @@ final class SystemMonitor: ObservableObject {
         guard watchDownloads, let url = downloadsURL else { return }
         knownDownloads = contents()
         let descriptor = open(url.path, O_EVTONLY)
-        guard descriptor >= 0 else { problem = "Cannot watch Downloads / تعذّرت مراقبة التنزيلات"; return }
+        guard descriptor >= 0 else { problem = ServiceText("تعذّرت مراقبة التنزيلات", "Cannot watch Downloads").resolved(arabicUI: arabicUI); return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
             self?.pendingScan?.cancel()
@@ -84,7 +86,7 @@ final class SystemMonitor: ObservableObject {
         let added = current.subtracting(knownDownloads).filter(Self.isFinishedName).sorted()
         knownDownloads = current
         for name in added.prefix(10) {
-            onEvent?("ملف جديد في التنزيلات", name, url.appendingPathComponent(name), "download")
+            onEvent?(ServiceText("ملف جديد في التنزيلات", "New file in Downloads").resolved(arabicUI: arabicUI), name, url.appendingPathComponent(name), "download")
         }
     }
 
@@ -96,7 +98,7 @@ final class SystemMonitor: ObservableObject {
             guard let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL,
                   let values = try? url.resourceValues(forKeys: [.volumeIsRemovableKey, .volumeIsEjectableKey]),
                   values.volumeIsRemovable == true || values.volumeIsEjectable == true else { return }
-            Task { @MainActor in self?.onEvent?("قرص متصل", url.lastPathComponent, url, "volume") }
+            Task { @MainActor in self?.onEvent?(ServiceText("قرص متصل", "Drive connected").resolved(arabicUI: self?.arabicUI ?? true), url.lastPathComponent, url, "volume") }
         }
     }
 
@@ -120,6 +122,6 @@ final class SystemMonitor: ObservableObject {
     private func capsChanged(_ enabled: Bool) {
         guard watchCapsLock, enabled != capsLock else { return }
         capsLock = enabled
-        onEvent?("Caps Lock", enabled ? "On / مفعّل" : "Off / متوقف", nil, "caps")
+        onEvent?("Caps Lock", ServiceText(enabled ? "مفعّل" : "متوقف", enabled ? "On" : "Off").resolved(arabicUI: arabicUI), nil, "caps")
     }
 }

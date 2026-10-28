@@ -33,6 +33,8 @@ final class WeatherModel: ObservableObject {
     @Published var reading: WeatherResponse.Current?
     @Published var loading = false
     @Published var error: String?
+    /// Set from the app's language choice; weather wording resolves through it.
+    var arabicUI = true
     private var refreshTimer: Timer?
     private var task: Task<Void, Never>?
     private let defaults: UserDefaults
@@ -50,7 +52,7 @@ final class WeatherModel: ObservableObject {
 
     func search() {
         let name = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= 100 else { error = "Enter a city / أدخل اسم المدينة"; return }
+        guard !name.isEmpty, name.count <= 100 else { error = ServiceText("أدخل اسم المدينة", "Enter a city").resolved(arabicUI: arabicUI); return }
         task?.cancel()
         loading = true; error = nil; candidates = []
         var parts = URLComponents(string: "https://geocoding-api.open-meteo.com/v1/search")!
@@ -63,10 +65,10 @@ final class WeatherModel: ObservableObject {
                 guard !Task.isCancelled, let self else { return }
                 self.candidates = (response.results ?? []).filter { (-90...90).contains($0.latitude) && (-180...180).contains($0.longitude) }
                 self.loading = false
-                if self.candidates.isEmpty { self.error = "No matching city / لم يُعثر على مدينة مطابقة" }
+                if self.candidates.isEmpty { self.error = ServiceText("لم يُعثر على مدينة مطابقة", "No matching city").resolved(arabicUI: self.arabicUI) }
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.error = error.localizedDescription; self?.loading = false
+                self?.error = ServiceText.network(error).resolved(arabicUI: self?.arabicUI ?? true); self?.loading = false
             }
         }
     }
@@ -96,7 +98,7 @@ final class WeatherModel: ObservableObject {
                 self.reading = response.current; self.loading = false
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.error = error.localizedDescription; self?.loading = false
+                self?.error = ServiceText.network(error).resolved(arabicUI: self?.arabicUI ?? true); self?.loading = false
             }
         }
     }

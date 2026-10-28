@@ -66,6 +66,8 @@ final class DeveloperModel: ObservableObject {
     @Published var pullError: String?
     @Published var regexPattern = ""
     @Published var snippets: [Snippet] = []
+    /// Set from the app's language choice; developer-tool wording resolves through it.
+    var arabicUI = true
     private var process: Process?
     private var outputPipe: Pipe?
     private var timer: Timer?
@@ -128,7 +130,7 @@ final class DeveloperModel: ObservableObject {
             self.liveCodexLoading = false
             switch result {
             case .success(let snapshot): self.liveCodex = snapshot
-            case .failure(let error): self.liveCodexError = error.localizedDescription
+            case .failure(let error): self.liveCodexError = (error as? CodexLiveError)?.message(arabicUI: self.arabicUI) ?? error.localizedDescription
             }
         }
     }
@@ -147,12 +149,12 @@ final class DeveloperModel: ObservableObject {
 
     func transform(_ operation: String) {
         workbenchError = false
-        do { workbenchOutput = try Self.transform(operation, text: workbenchInput, pattern: regexPattern) }
+        do { workbenchOutput = try Self.transform(operation, text: workbenchInput, pattern: regexPattern, arabicUI: arabicUI) }
         catch { workbenchError = true; workbenchOutput = error.localizedDescription }
     }
 
-    static func transform(_ operation: String, text: String, pattern: String = "") throws -> String {
-        func invalid(_ message: String) -> NSError { NSError(domain: "Notchest", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+    static func transform(_ operation: String, text: String, pattern: String = "", arabicUI: Bool = true) throws -> String {
+        func invalid(_ arabic: String, _ english: String) -> NSError { NSError(domain: "Notchest", code: 1, userInfo: [NSLocalizedDescriptionKey: ServiceText(arabic, english).resolved(arabicUI: arabicUI)]) }
         switch operation {
         case "JSON":
             let object = try JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
@@ -163,11 +165,11 @@ final class DeveloperModel: ObservableObject {
             return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed]), as: UTF8.self)
         case "Base64 ↑": return Data(text.utf8).base64EncodedString()
         case "Base64 ↓":
-            guard let data = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)), let value = String(data: data, encoding: .utf8) else { throw invalid("Invalid Base64 / ليست بيانات Base64 نصية صالحة") }
+            guard let data = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)), let value = String(data: data, encoding: .utf8) else { throw invalid("ليست بيانات Base64 نصية صالحة", "Invalid Base64") }
             return value
         case "URL ↑": return text.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? text
         case "URL ↓":
-            guard let value = text.removingPercentEncoding else { throw invalid("Invalid URL encoding / ترميز رابط غير صالح") }
+            guard let value = text.removingPercentEncoding else { throw invalid("ترميز رابط غير صالح", "Invalid URL encoding") }
             return value
         case "SHA-256": return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
         case "UUID": return UUID().uuidString.lowercased()
@@ -176,9 +178,9 @@ final class DeveloperModel: ObservableObject {
                 return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: seconds > 10_000_000_000 ? seconds / 1000 : seconds))
             }
             if let date = ISO8601DateFormatter().date(from: text.trimmingCharacters(in: .whitespacesAndNewlines)) { return String(Int(date.timeIntervalSince1970)) }
-            throw invalid("Use Unix seconds, milliseconds, or an ISO 8601 date / أدخل وقت Unix أو تاريخ ISO 8601")
+            throw invalid("أدخل وقت Unix أو تاريخ ISO 8601", "Use Unix seconds, milliseconds, or an ISO 8601 date")
         case "Regex":
-            guard !pattern.isEmpty else { throw invalid("Enter a regular expression / أدخل التعبير النمطي") }
+            guard !pattern.isEmpty else { throw invalid("أدخل التعبير النمطي", "Enter a regular expression") }
             let expression = try NSRegularExpression(pattern: pattern)
             let matches = expression.matches(in: text, range: NSRange(text.startIndex..., in: text))
             return matches.compactMap { Range($0.range, in: text).map { String(text[$0]) } }.joined(separator: "\n") + "\n\n\(matches.count) matches"
@@ -282,19 +284,20 @@ final class DeveloperModel: ObservableObject {
         gitBusy = true
         pullError = nil
         let directory = workingDirectory
+        let arabicUI = self.arabicUI
         Task { [weak self] in
-            let result = await Task.detached(priority: .utility) { Self.fetchPulls(directory: directory) }.value
+            let result = await Task.detached(priority: .utility) { Self.fetchPulls(directory: directory, arabicUI: arabicUI) }.value
             self?.pulls = result.pulls
             self?.pullError = result.error
             self?.gitBusy = false
         }
     }
 
-    nonisolated static func fetchPulls(directory: URL) -> PullResult {
+    nonisolated static func fetchPulls(directory: URL, arabicUI: Bool) -> PullResult {
         let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/gh" }
             + ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
         guard let executable = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            return PullResult(error: "Install GitHub CLI (gh) and sign in / ثبّت GitHub CLI وسجّل الدخول إليه")
+            return PullResult(error: ServiceText("ثبّت GitHub CLI وسجّل الدخول إليه", "Install GitHub CLI (gh) and sign in").resolved(arabicUI: arabicUI))
         }
         let process = Process()
         let pipe = Pipe()

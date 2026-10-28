@@ -12,11 +12,13 @@ final class NotchestTranslationModel: ObservableObject {
     @Published var pending = ""
     @Published var loading = false
     @Published var error: String?
+    /// Set from the app's language choice before each request.
+    var arabicUI = true
 
     func request() {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { error = "Enter text / أدخل نصًا"; return }
-        guard value.count <= 10_000 else { error = "Text is too long / النص طويل جدًا"; return }
+        guard !value.isEmpty else { error = ServiceText("أدخل نصًا", "Enter text").resolved(arabicUI: arabicUI); return }
+        guard value.count <= 10_000 else { error = ServiceText("النص طويل جدًا", "Text is too long").resolved(arabicUI: arabicUI); return }
         pending = value; loading = true; error = nil
         let language = Locale.Language(identifier: target)
         if var current = configuration {
@@ -44,7 +46,7 @@ struct TranslationView: View {
                     Text("العربية").tag("ar"); Text("English").tag("en"); Text("Français").tag("fr")
                     Text("Türkçe").tag("tr"); Text("Español").tag("es")
                 }.labelsHidden().frame(width: 130).controlSize(.small)
-                Button(app.text("ترجمة", "Translate")) { translation.request() }.buttonStyle(.plain).foregroundStyle(notchestAccent).font(.system(size: 11, weight: .semibold))
+                Button(app.text("ترجمة", "Translate")) { translation.arabicUI = app.arabic; translation.request() }.buttonStyle(.plain).foregroundStyle(notchestAccent).font(.system(size: 11, weight: .semibold))
             }
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -71,7 +73,7 @@ struct TranslationView: View {
                 await MainActor.run { if translation.pending == input { translation.output = response.targetText; translation.loading = false } }
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run { if translation.pending == input { translation.error = error.localizedDescription; translation.loading = false } }
+                await MainActor.run { if translation.pending == input { translation.error = ServiceText.network(error).resolved(arabicUI: translation.arabicUI); translation.loading = false } }
             }
         }
     }

@@ -44,6 +44,8 @@ final class NativeTools: ObservableObject {
     @Published var shortcutNames: [String] = []
     @Published var selectedShortcut = ""
     var notify: ((String) -> Void)?
+    /// Set from the app's language choice; all tool wording resolves through it.
+    var arabicUI = true
     var collapse: (() -> Void)?
     private var timer: Timer?
     private var musicTimer: Timer?
@@ -117,19 +119,19 @@ final class NativeTools: ObservableObject {
     }
 
     func toggleMic() {
-        guard let micMuted else { notify?("Microphone mute unavailable / كتم الميكروفون غير متاح"); return }
+        guard let micMuted else { notify?(ServiceText("كتم الميكروفون غير متاح", "Microphone mute unavailable").resolved(arabicUI: arabicUI)); return }
         let input = defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute, mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
         var value: UInt32 = micMuted ? 0 : 1
         if AudioObjectSetPropertyData(input, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value) == noErr { self.micMuted = !micMuted }
-        else { notify?("This input does not support mute / جهاز الإدخال لا يدعم الكتم") }
+        else { notify?(ServiceText("جهاز الإدخال لا يدعم الكتم", "This input does not support mute").resolved(arabicUI: arabicUI)) }
     }
 
     func changeOutput(_ id: AudioDeviceID) {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var value = id
         if AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, UInt32(MemoryLayout<AudioDeviceID>.size), &value) == noErr { refreshSystem() }
-        else { notify?("Could not switch output / تعذّر تبديل مخرج الصوت") }
+        else { notify?(ServiceText("تعذّر تبديل مخرج الصوت", "Could not switch output").resolved(arabicUI: arabicUI)) }
     }
 
     private func audioOutputs() -> [AudioOutput] {
@@ -196,12 +198,12 @@ final class NativeTools: ObservableObject {
         result = text
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        notify?("Copied / تم النسخ")
+        notify?(ServiceText("تم النسخ", "Copied").resolved(arabicUI: arabicUI))
     }
 
     func recognizeClipboardImage() {
         guard let image = NSImage(pasteboard: .general), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            notify?("Copy an image first / انسخ صورة أولًا"); return
+            notify?(ServiceText("انسخ صورة أولًا", "Copy an image first").resolved(arabicUI: arabicUI)); return
         }
         busy = true
         Task { [weak self] in
@@ -215,7 +217,7 @@ final class NativeTools: ObservableObject {
                 } catch { return "OCR: \(error.localizedDescription)" }
             }.value
             self?.busy = false
-            if output.isEmpty { self?.notify?("No text detected / لم يُعثر على نص") }
+            if output.isEmpty { self?.notify?(ServiceText("لم يُعثر على نص", "No text detected").resolved(arabicUI: self?.arabicUI ?? true)) }
             else { self?.copyResult(output) }
         }
     }
@@ -249,10 +251,10 @@ final class NativeTools: ObservableObject {
         save.nameFieldStringValue = sourceURL.deletingPathExtension().lastPathComponent + "." + (type.preferredFilenameExtension ?? "png")
         guard save.runModal() == .OK, let destinationURL = save.url else { return }
         guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              let destination = CGImageDestinationCreateWithURL(destinationURL as CFURL, type.identifier as CFString, 1, nil) else { notify?("Unsupported image / الصورة غير مدعومة"); return }
+              let destination = CGImageDestinationCreateWithURL(destinationURL as CFURL, type.identifier as CFString, 1, nil) else { notify?(ServiceText("الصورة غير مدعومة", "Unsupported image").resolved(arabicUI: arabicUI)); return }
         CGImageDestinationAddImage(destination, image, nil)
-        if CGImageDestinationFinalize(destination) { addToShelf(destinationURL); notify?("Image converted / تم تحويل الصورة") }
-        else { notify?("Conversion failed / تعذّر التحويل") }
+        if CGImageDestinationFinalize(destination) { addToShelf(destinationURL); notify?(ServiceText("تم تحويل الصورة", "Image converted").resolved(arabicUI: arabicUI)) }
+        else { notify?(ServiceText("تعذّر التحويل", "Conversion failed").resolved(arabicUI: arabicUI)) }
     }
 
     func archive(unzip: Bool, addToShelf: @escaping (URL) -> Void) {
@@ -283,20 +285,20 @@ final class NativeTools: ObservableObject {
                 do { try process.run(); process.waitUntilExit(); return process.terminationStatus == 0 } catch { return false }
             }.value
             self?.busy = false
-            if success { addToShelf(destination); self?.notify?("Done / تم") }
-            else { self?.notify?("Archive operation failed / تعذّرت العملية") }
+            if success { addToShelf(destination); self?.notify?(ServiceText("تم", "Done").resolved(arabicUI: self?.arabicUI ?? true)) }
+            else { self?.notify?(ServiceText("تعذّرت العملية", "Archive operation failed").resolved(arabicUI: self?.arabicUI ?? true)) }
         }
     }
 
     func tileWindow(_ side: String) {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        guard AXIsProcessTrustedWithOptions(options) else { notify?("Allow Accessibility in System Settings / فعّل تسهيلات الاستخدام من إعدادات النظام"); return }
+        guard AXIsProcessTrustedWithOptions(options) else { notify?(ServiceText("فعّل تسهيلات الاستخدام من إعدادات النظام", "Allow Accessibility in System Settings").resolved(arabicUI: arabicUI)); return }
         let current = NSWorkspace.shared.frontmostApplication
         let target = current?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? lastExternalApp : current
-        guard let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier else { notify?("Select an app window first / اختر نافذة تطبيق أولًا"); return }
+        guard let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier else { notify?(ServiceText("اختر نافذة تطبيق أولًا", "Select an app window first").resolved(arabicUI: arabicUI)); return }
         let app = AXUIElementCreateApplication(target.processIdentifier)
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success, let focused else { notify?("No resizable window / لا توجد نافذة قابلة للتنظيم"); return }
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success, let focused else { notify?(ServiceText("لا توجد نافذة قابلة للتنظيم", "No resizable window").resolved(arabicUI: arabicUI)); return }
         let window = unsafeBitCast(focused, to: AXUIElement.self)
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
@@ -306,19 +308,19 @@ final class NativeTools: ObservableObject {
         guard let position = AXValueCreate(.cgPoint, &point), let dimensions = AXValueCreate(.cgSize, &size) else { return }
         let moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
         let resized = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, dimensions)
-        if moved != .success || resized != .success { notify?("This window did not accept tiling / النافذة لم تقبل التنظيم") }
+        if moved != .success || resized != .success { notify?(ServiceText("النافذة لم تقبل التنظيم", "This window did not accept tiling").resolved(arabicUI: arabicUI)) }
     }
 
     func loadCalendar() {
         requestEventAccess(reminders: false) { [weak self] allowed in
             guard let self else { return }
-            guard allowed else { self.notify?("Calendar access not granted / لم تُمنح صلاحية التقويم"); return }
+            guard allowed else { self.notify?(ServiceText("لم تُمنح صلاحية التقويم", "Calendar access not granted").resolved(arabicUI: self.arabicUI)); return }
             let start = Date()
             let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
             let events = self.eventStore.events(matching: self.eventStore.predicateForEvents(withStart: start, end: end, calendars: nil)).sorted { $0.startDate < $1.startDate }.prefix(8)
             let formatter = DateFormatter(); formatter.timeStyle = .short
-            self.calendarLines = events.map { "\(formatter.string(from: $0.startDate)) · \($0.title ?? "Event")" }
-            if events.isEmpty { self.notify?("No events in the next 24 hours / لا توجد أحداث في الساعات الـ24 المقبلة") }
+            self.calendarLines = events.map { "\(formatter.string(from: $0.startDate)) · \($0.title ?? ServiceText("حدث", "Event").resolved(arabicUI: self.arabicUI))" }
+            if events.isEmpty { self.notify?(ServiceText("لا توجد أحداث في الساعات الـ24 المقبلة", "No events in the next 24 hours").resolved(arabicUI: self.arabicUI)) }
         }
     }
 
@@ -333,10 +335,10 @@ final class NativeTools: ObservableObject {
         let value = title.stringValue
         requestEventAccess(reminders: true) { [weak self] allowed in
             guard let self else { return }
-            guard allowed, let calendar = self.eventStore.defaultCalendarForNewReminders() else { self.notify?("Reminders access not granted / لم تُمنح صلاحية التذكيرات"); return }
+            guard allowed, let calendar = self.eventStore.defaultCalendarForNewReminders() else { self.notify?(ServiceText("لم تُمنح صلاحية التذكيرات", "Reminders access not granted").resolved(arabicUI: self.arabicUI)); return }
             let reminder = EKReminder(eventStore: self.eventStore)
             reminder.title = value; reminder.calendar = calendar
-            do { try self.eventStore.save(reminder, commit: true); self.notify?("Reminder added / أُضيف التذكير") }
+            do { try self.eventStore.save(reminder, commit: true); self.notify?(ServiceText("أُضيف التذكير", "Reminder added").resolved(arabicUI: self.arabicUI)) }
             catch { self.notify?(error.localizedDescription) }
         }
     }
@@ -361,7 +363,7 @@ final class NativeTools: ObservableObject {
             guard !Task.isCancelled, self.musicApp == player else { return }
             self.musicReading = false
             guard let metadata = result.0 else {
-                if manual { self.notify?(result.1 ?? "Open your music app and play a track / افتح تطبيق الموسيقى وشغّل مقطعًا") }
+                if manual { self.notify?(result.1 ?? ServiceText("افتح تطبيق الموسيقى وشغّل مقطعًا", "Open your music app and play a track").resolved(arabicUI: self.arabicUI)) }
                 if self.musicConnected { self.stopMusic() }
                 return
             }
@@ -393,7 +395,7 @@ final class NativeTools: ObservableObject {
     }
 
     func loadLyrics() {
-        guard !musicTitle.isEmpty, !musicArtist.isEmpty else { notify?("Connect music first / اربط الموسيقى أولًا"); return }
+        guard !musicTitle.isEmpty, !musicArtist.isEmpty else { notify?(ServiceText("اربط الموسيقى أولًا", "Connect music first").resolved(arabicUI: arabicUI)); return }
         lyricsTask?.cancel(); lyricsLoading = true; lyricsError = nil; showLyrics = true
         let title = musicTitle, artist = musicArtist
         lyricsTask = Task { [weak self] in
@@ -403,10 +405,10 @@ final class NativeTools: ObservableObject {
                 self.lyrics = LyricsParser.parse(record?.syncedLyrics ?? "")
                 self.plainLyrics = record?.plainLyrics ?? ""
                 self.lyricsLoading = false
-                if self.lyrics.isEmpty && self.plainLyrics.isEmpty { self.lyricsError = "Lyrics not found / لم تُعثر على كلمات مطابقة" }
+                if self.lyrics.isEmpty && self.plainLyrics.isEmpty { self.lyricsError = ServiceText("لم تُعثر على كلمات مطابقة", "Lyrics not found").resolved(arabicUI: self.arabicUI) }
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.lyricsLoading = false; self?.lyricsError = error.localizedDescription
+                self?.lyricsLoading = false; self?.lyricsError = ServiceText.network(error).resolved(arabicUI: self?.arabicUI ?? true)
             }
         }
     }
@@ -429,7 +431,7 @@ final class NativeTools: ObservableObject {
         let player = musicApp == "Spotify" ? "Spotify" : "Music"
         var error: NSDictionary?
         NSAppleScript(source: "tell application \"\(player)\" to \(action)")?.executeAndReturnError(&error)
-        if let error { notify?(error[NSAppleScript.errorMessage] as? String ?? "Automation unavailable") }
+        if let error { notify?(error[NSAppleScript.errorMessage] as? String ?? ServiceText("الأتمتة غير متاحة", "Automation unavailable").resolved(arabicUI: arabicUI)) }
         else { refreshMusic() }
     }
 
@@ -454,7 +456,7 @@ final class NativeTools: ObservableObject {
         let name = selectedShortcut
         Task { [weak self] in
             let output = await Task.detached { DeveloperModel.capture(executable: "/usr/bin/shortcuts", arguments: ["run", name]) }.value
-            self?.result = output.isEmpty ? "Shortcut finished / اكتمل الاختصار" : output
+            self?.result = output.isEmpty ? ServiceText("اكتمل الاختصار", "Shortcut finished").resolved(arabicUI: self?.arabicUI ?? true) : output
             self?.busy = false
         }
     }
@@ -468,7 +470,7 @@ final class NativeTools: ObservableObject {
 
     func calculate() {
         do { calculatorResult = try Arithmetic.evaluate(calculatorInput).formatted(.number.precision(.fractionLength(0...8))) }
-        catch { calculatorResult = "Invalid expression / صيغة غير صالحة" }
+        catch { calculatorResult = ServiceText("صيغة غير صالحة", "Invalid expression").resolved(arabicUI: arabicUI) }
     }
 }
 

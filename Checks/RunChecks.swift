@@ -341,6 +341,37 @@ struct RunChecks {
                 precondition(!inset.contains(CGPoint(x: size.width / 2, y: 0.5)))
             }
         }
+        check("Service messages resolve to one interface language, never both") {
+            let messages: [ServiceText] = [
+                StockError.missingKey.text, StockError.invalidKey.text, StockError.noQuote.text, StockError.requestFailed.text,
+                CodexLiveError.missing.text, CodexLiveError.failed.text, CodexLiveError.timeout.text, CodexLiveError.invalid.text,
+                ServiceText("ملف جديد في التنزيلات", "New file in Downloads"),
+                ServiceText("قرص متصل", "Drive connected"),
+                ServiceText("تم النسخ", "Copied"),
+                ServiceText("ثبّت GitHub CLI وسجّل الدخول إليه", "Install GitHub CLI (gh) and sign in"),
+                ServiceText.network(URLError(.notConnectedToInternet)),
+                ServiceText.network(URLError(.timedOut)),
+            ]
+            for message in messages {
+                let english = message.resolved(arabicUI: false)
+                let arabic = message.resolved(arabicUI: true)
+                precondition(!english.isEmpty && !arabic.isEmpty)
+                precondition(english != arabic)
+                precondition(!ServiceText.containsArabicLetters(english))
+            }
+            precondition(ServiceText.network(URLError(.notConnectedToInternet)).resolved(arabicUI: false) == "No internet connection")
+        }
+        check("The language switch propagates to every service model") {
+            let suite = "dev.notchest.language.models.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let model = AppModel(defaults: defaults, startServices: false)
+            precondition(model.arabic == model.developer.arabicUI)
+            model.arabic.toggle()
+            let flag = model.arabic
+            precondition(model.developer.arabicUI == flag && model.tools.arabicUI == flag && model.monitor.arabicUI == flag && model.weather.arabicUI == flag && model.stocks.arabicUI == flag)
+            model.shutdown()
+        }
         print("\(count) checks passed.")
     }
 }

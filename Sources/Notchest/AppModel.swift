@@ -108,7 +108,10 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(sessions, forKey: "sessions") }
     }
     @Published var arabic: Bool {
-        didSet { defaults.set(arabic, forKey: "arabic") }
+        didSet {
+            defaults.set(arabic, forKey: "arabic")
+            applyLanguage()
+        }
     }
     @Published var hoverEnabled: Bool {
         didSet { defaults.set(hoverEnabled, forKey: "hoverEnabled") }
@@ -145,6 +148,7 @@ final class AppModel: ObservableObject {
         sessions = defaults.integer(forKey: "sessions")
         clock = defaults.data(forKey: "focusClock").flatMap { try? JSONDecoder().decode(FocusClock.self, from: $0) } ?? FocusClock()
         shelf = defaults.data(forKey: "shelf").flatMap { try? JSONDecoder().decode([ShelfItem].self, from: $0) } ?? []
+        applyLanguage()
         if startServices {
             readBattery()
             configureClipboard()
@@ -156,6 +160,18 @@ final class AppModel: ObservableObject {
     }
 
     func text(_ arabic: String, _ english: String) -> String { self.arabic ? arabic : english }
+
+    /// One switch drives every layer: views read `text`, and the service
+    /// models receive the flag so their emitted strings follow the same
+    /// language choice instead of showing both.
+    func applyLanguage() {
+        developer.arabicUI = arabic
+        tools.arabicUI = arabic
+        monitor.arabicUI = arabic
+        weather.arabicUI = arabic
+        stocks.arabicUI = arabic
+    }
+
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() }

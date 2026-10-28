@@ -8,14 +8,17 @@ struct CodexLiveSnapshot {
     let fetchedAt: Date
 }
 
-enum CodexLiveError: LocalizedError {
+enum CodexLiveError: Error {
     case missing, failed, timeout, invalid
-    var errorDescription: String? {
+
+    func message(arabicUI: Bool) -> String { text.resolved(arabicUI: arabicUI) }
+
+    var text: ServiceText {
         switch self {
-        case .missing: return "Codex CLI not found / تعذّر العثور على Codex CLI"
-        case .failed: return "Codex account is unavailable / حساب Codex غير متاح"
-        case .timeout: return "Codex did not respond in time / انتهت مهلة اتصال Codex"
-        case .invalid: return "Codex returned no usage limits / لم يُرجع Codex حدود الاستخدام"
+        case .missing: return ServiceText("تعذّر العثور على Codex CLI", "Codex CLI not found")
+        case .failed: return ServiceText("حساب Codex غير متاح", "Codex account is unavailable")
+        case .timeout: return ServiceText("انتهت مهلة اتصال Codex", "Codex did not respond in time")
+        case .invalid: return ServiceText("لم يُرجع Codex حدود الاستخدام", "Codex returned no usage limits")
         }
     }
 }
