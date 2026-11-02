@@ -37,11 +37,14 @@ struct UsageSnapshot {
     var secondary: UsageWindow?
     var observedAt: Date?
     var scannedAt: Date?
+    var lastEventAt: Date?
     var fileCount = 0
     var eventCount = 0
     var missingDirectory = false
     var partial = false
     var unreadableFiles = 0
+    /// Disk bytes read this pass; unchanged files and appended tails stay cheap.
+    var bytesRead = 0
 }
 
 enum UsageReader {
@@ -53,11 +56,17 @@ enum UsageReader {
     private struct ParsedFile {
         var modified: Date
         var size: Int
+        var identity: String
         var weekStart: Date
+        var offset: UInt64 = 0
+        var previous = TokenTally()
+        var discardingOversizedLine = false
+        var skippedOversizedLine = false
         var entries: [String: Entry] = [:]
         var primary: UsageWindow?
         var secondary: UsageWindow?
         var observedAt: Date?
+        var lastEventAt: Date?
     }
     private static let cacheLock = NSLock()
     private static var cache: [String: ParsedFile] = [:]
@@ -67,53 +76,65 @@ enum UsageReader {
         snapshot.scannedAt = now
         let fm = FileManager.default
         guard fm.fileExists(atPath: directory.path) else { snapshot.missingDirectory = true; return snapshot }
-        guard let enumerator = fm.enumerator(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in false }) else {
+        var enumerationErrors = 0
+        guard let enumerator = fm.enumerator(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in enumerationErrors += 1; return true }) else {
             snapshot.unreadableFiles = 1
             return snapshot
         }
         var files: [(URL, Date, Int)] = []
         for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl", let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]), values.isRegularFile == true else { continue }
+            if Task.isCancelled { return snapshot }
+            guard url.pathExtension == "jsonl" else { continue }
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]), values.isRegularFile == true else { snapshot.unreadableFiles += 1; continue }
             files.append((url, values.contentModificationDate ?? .distantPast, values.fileSize ?? 0))
         }
+        snapshot.unreadableFiles += enumerationErrors
         files.sort { $0.1 > $1.1 }
         if files.count > 1500 { snapshot.partial = true }
         let calendar = Calendar.current
         let day = calendar.startOfDay(for: now)
         let weekStart = calendar.date(byAdding: .day, value: -6, to: day)!
         var entries: [String: Entry] = [:]
-        var bytesRead = 0
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let fallbackFormatter = ISO8601DateFormatter()
 
         for (file, modified, size) in files.prefix(1500) {
+            if Task.isCancelled { return snapshot }
             // Old unmodified transcripts cannot contribute to this seven-day view.
             if modified < weekStart { continue }
-            guard size < 1024 * 1024 * 1024, bytesRead + size < 1024 * 1024 * 1024 else { snapshot.partial = true; continue }
+            guard size < 1024 * 1024 * 1024 else { snapshot.partial = true; continue }
+            let attributes = try? fm.attributesOfItem(atPath: file.path)
+            let identity = "\(attributes?[.systemNumber] ?? 0):\(attributes?[.systemFileNumber] ?? 0)"
             let key = provider.rawValue + file.path
             cacheLock.lock()
             let cached = cache[key]
             cacheLock.unlock()
             let parsed: ParsedFile
-            if let cached, cached.modified == modified, cached.size == size, cached.weekStart <= weekStart {
+            if let cached, cached.identity == identity, cached.modified == modified, cached.size == size, cached.weekStart == weekStart {
                 parsed = cached
             } else {
-                guard let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { snapshot.unreadableFiles += 1; continue }
-                bytesRead += size
-                parsed = parseFile(data, provider: provider, modified: modified, size: size, weekStart: weekStart, now: now, formatter: formatter, fallback: fallbackFormatter)
+                // JSONL writers append. Reuse only complete records from the same inode;
+                // truncation, replacement, or a new day requires a fresh baseline.
+                let base = cached.flatMap { $0.identity == identity && size > $0.size && $0.weekStart == weekStart ? $0 : nil }
+                let offset = base?.offset ?? 0
+                let needed = max(0, size - Int(offset))
+                guard snapshot.bytesRead + needed < 1024 * 1024 * 1024 else { snapshot.partial = true; continue }
+                do {
+                    parsed = try readFile(file, provider: provider, base: base, modified: modified, size: size, identity: identity, weekStart: weekStart, now: now, formatter: formatter, fallback: fallbackFormatter)
+                    snapshot.bytesRead += needed
+                } catch {
+                    snapshot.unreadableFiles += 1
+                    // Keep the last good contribution during a transient read failure.
+                    if let cached { merge(cached, into: &snapshot, entries: &entries, weekStart: weekStart, now: now) }
+                    continue
+                }
                 cacheLock.lock()
                 if cache.count > 2000 { cache.removeAll() }
                 cache[key] = parsed
                 cacheLock.unlock()
             }
-            snapshot.fileCount += 1
-            if let date = parsed.observedAt, snapshot.observedAt == nil || date > snapshot.observedAt! {
-                snapshot.primary = parsed.primary; snapshot.secondary = parsed.secondary; snapshot.observedAt = date
-            }
-            for (key, entry) in parsed.entries where entry.date >= weekStart {
-                if entries[key] == nil || entry.tally.total > entries[key]!.tally.total { entries[key] = entry }
-            }
+            merge(parsed, into: &snapshot, entries: &entries, weekStart: weekStart, now: now)
         }
         var daily: [Date: Int] = [:]
         for entry in entries.values {
@@ -130,39 +151,87 @@ enum UsageReader {
         return snapshot
     }
 
-    private static func parseFile(_ data: Data, provider: AIProvider, modified: Date, size: Int, weekStart: Date, now: Date, formatter: ISO8601DateFormatter, fallback: ISO8601DateFormatter) -> ParsedFile {
-        var parsed = ParsedFile(modified: modified, size: size, weekStart: weekStart)
-        var previous = TokenTally()
-        let marker = Data((provider == .codex ? "\"token_count\"" : "\"usage\"").utf8)
-        for line in data.split(separator: 10) {
-            guard line.range(of: marker) != nil,
-                  let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                  let timestamp = object["timestamp"] as? String,
-                  let date = formatter.date(from: timestamp) ?? fallback.date(from: timestamp) else { continue }
-            if provider == .codex {
-                guard let payload = object["payload"] as? [String: Any], payload["type"] as? String == "token_count" else { continue }
-                if let limits = payload["rate_limits"] as? [String: Any], parsed.observedAt == nil || date >= parsed.observedAt! {
-                    parsed.primary = parseWindow(limits["primary"])
-                    parsed.secondary = parseWindow(limits["secondary"])
-                    parsed.observedAt = date
-                }
-                guard let info = payload["info"] as? [String: Any], let total = info["total_token_usage"] as? [String: Any] else { continue }
-                let current = TokenTally(input: integer(total["input_tokens"]), cached: integer(total["cached_input_tokens"]), output: integer(total["output_tokens"]))
-                let delta = TokenTally(input: max(0, current.input - previous.input), cached: max(0, current.cached - previous.cached), output: max(0, current.output - previous.output))
-                previous = current
-                if delta.total == 0 || date < weekStart || date > now.addingTimeInterval(60) { continue }
-                let key = "\(timestamp):\(current.input):\(current.output)"
-                parsed.entries[key] = Entry(date: date, tally: delta, key: key)
-            } else {
-                guard object["type"] as? String == "assistant", let message = object["message"] as? [String: Any], let usage = message["usage"] as? [String: Any], date >= weekStart, date <= now.addingTimeInterval(60) else { continue }
-                let cached = integer(usage["cache_read_input_tokens"])
-                let input = integer(usage["input_tokens"]) + cached + integer(usage["cache_creation_input_tokens"])
-                let tally = TokenTally(input: input, cached: cached, output: integer(usage["output_tokens"]))
-                let key = message["id"] as? String ?? "\(timestamp):\(input):\(tally.output)"
-                if parsed.entries[key] == nil || tally.total > parsed.entries[key]!.tally.total { parsed.entries[key] = Entry(date: date, tally: tally, key: key) }
+    private static func merge(_ parsed: ParsedFile, into snapshot: inout UsageSnapshot, entries: inout [String: Entry], weekStart: Date, now: Date) {
+        snapshot.fileCount += 1
+        snapshot.partial = snapshot.partial || parsed.skippedOversizedLine
+        if let date = parsed.observedAt, snapshot.observedAt == nil || date > snapshot.observedAt! {
+            snapshot.primary = parsed.primary; snapshot.secondary = parsed.secondary; snapshot.observedAt = date
+        }
+        if let date = parsed.lastEventAt, snapshot.lastEventAt == nil || date > snapshot.lastEventAt! { snapshot.lastEventAt = date }
+        for (key, entry) in parsed.entries where entry.date >= weekStart && entry.date <= now.addingTimeInterval(60) {
+            if entries[key] == nil || entry.tally.total > entries[key]!.tally.total { entries[key] = entry }
+        }
+    }
+
+    private static func readFile(_ url: URL, provider: AIProvider, base: ParsedFile?, modified: Date, size: Int, identity: String, weekStart: Date, now: Date, formatter: ISO8601DateFormatter, fallback: ISO8601DateFormatter) throws -> ParsedFile {
+        var parsed = base ?? ParsedFile(modified: modified, size: size, identity: identity, weekStart: weekStart)
+        parsed.modified = modified; parsed.size = size
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: parsed.offset)
+        var remaining = size - Int(parsed.offset)
+        var pending = Data()
+        // Read bounded chunks, and cache only numeric entries, never transcript text.
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let chunk = try handle.read(upToCount: min(262_144, remaining)) ?? Data()
+            guard !chunk.isEmpty else { throw CocoaError(.fileReadUnknown) }
+            remaining -= chunk.count
+            pending.append(chunk)
+            while let newline = pending.firstIndex(of: 10) {
+                let consumed = pending.distance(from: pending.startIndex, to: newline) + 1
+                if !parsed.discardingOversizedLine, consumed <= 8 * 1024 * 1024 {
+                    parseLine(Data(pending[..<newline]), provider: provider, parsed: &parsed, weekStart: weekStart, now: now, formatter: formatter, fallback: fallback)
+                } else { parsed.skippedOversizedLine = true }
+                parsed.discardingOversizedLine = false
+                parsed.offset += UInt64(consumed)
+                pending.removeSubrange(...newline)
+            }
+            if pending.count > 8 * 1024 * 1024 || parsed.discardingOversizedLine {
+                parsed.skippedOversizedLine = true
+                parsed.discardingOversizedLine = true
+                parsed.offset += UInt64(pending.count)
+                pending.removeAll(keepingCapacity: false)
             }
         }
+        // A valid final record does not need a trailing newline. An incomplete
+        // one is left on disk and retried after the writer finishes it.
+        if !pending.isEmpty, (try? JSONSerialization.jsonObject(with: pending)) != nil {
+            parseLine(pending, provider: provider, parsed: &parsed, weekStart: weekStart, now: now, formatter: formatter, fallback: fallback)
+            parsed.offset += UInt64(pending.count)
+        }
         return parsed
+    }
+
+    private static func parseLine(_ line: Data, provider: AIProvider, parsed: inout ParsedFile, weekStart: Date, now: Date, formatter: ISO8601DateFormatter, fallback: ISO8601DateFormatter) {
+        let marker = Data((provider == .codex ? "\"token_count\"" : "\"usage\"").utf8)
+        guard line.range(of: marker) != nil,
+              let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+              let timestamp = object["timestamp"] as? String,
+              let date = formatter.date(from: timestamp) ?? fallback.date(from: timestamp) else { return }
+        if provider == .codex {
+            guard let payload = object["payload"] as? [String: Any], payload["type"] as? String == "token_count" else { return }
+            if date <= now.addingTimeInterval(60), let limits = payload["rate_limits"] as? [String: Any], parseWindow(limits["primary"]) != nil || parseWindow(limits["secondary"]) != nil, parsed.observedAt == nil || date >= parsed.observedAt! {
+                parsed.primary = parseWindow(limits["primary"])
+                parsed.secondary = parseWindow(limits["secondary"])
+                parsed.observedAt = date
+            }
+            guard let info = payload["info"] as? [String: Any], let total = info["total_token_usage"] as? [String: Any] else { return }
+            let current = TokenTally(input: integer(total["input_tokens"]), cached: integer(total["cached_input_tokens"]), output: integer(total["output_tokens"]))
+            let delta = TokenTally(input: max(0, current.input - parsed.previous.input), cached: max(0, current.cached - parsed.previous.cached), output: max(0, current.output - parsed.previous.output))
+            parsed.previous = current
+            if delta.total == 0 || date < weekStart || date > now.addingTimeInterval(60) { return }
+            let key = "\(timestamp):\(current.input):\(current.output)"
+            parsed.entries[key] = Entry(date: date, tally: delta, key: key)
+        } else {
+            guard object["type"] as? String == "assistant", let message = object["message"] as? [String: Any], let usage = message["usage"] as? [String: Any], date >= weekStart, date <= now.addingTimeInterval(60) else { return }
+            let cached = integer(usage["cache_read_input_tokens"])
+            let input = integer(usage["input_tokens"]) + cached + integer(usage["cache_creation_input_tokens"])
+            let tally = TokenTally(input: input, cached: cached, output: integer(usage["output_tokens"]))
+            let key = message["id"] as? String ?? "\(timestamp):\(input):\(tally.output)"
+            if parsed.entries[key] == nil || tally.total > parsed.entries[key]!.tally.total { parsed.entries[key] = Entry(date: date, tally: tally, key: key) }
+        }
+        if parsed.lastEventAt == nil || date > parsed.lastEventAt! { parsed.lastEventAt = date }
     }
 
     static func parseWindow(_ value: Any?) -> UsageWindow? {

@@ -5,6 +5,23 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Refresh local AI usage every five seconds in common run-loop modes, on
+  returning to the usage view, and after wake. Cancel outdated provider/folder
+  reads so their results cannot overwrite the current selection.
+- Add opt-in automatic Codex account-limit refresh every minute, independently
+  of local tracking. Retry failed connections with bounded backoff and keep
+  the last successful snapshot visibly marked as stale.
+- Read appended JSONL records incrementally, retry unfinished records, and
+  rebuild the baseline after log truncation, replacement, or a day change.
+  Keep cached numeric data during transient read failures; bound individual
+  records to 8 MiB and disclose skipped data as a partial scan.
+- Show the last local scan and recorded activity separately from the account
+  fetch time. Keep connection errors in the current interface language.
+- Update the compact island from fresh live limits and hide expired or stale
+  percentages instead of continuing to show an old local snapshot.
+
 ### Documentation
 
 - Add prominent bilingual first-launch guidance beside download links, in the

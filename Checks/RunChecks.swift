@@ -1,8 +1,41 @@
 import Foundation
 
+private final class UsageCheckService: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scans = 0
+    private var lives = 0
+    private var scanFailure = false
+    private var liveFailure = false
+    var scanCount: Int { lock.withLock { scans } }
+    var liveCount: Int { lock.withLock { lives } }
+    var failScan: Bool {
+        get { lock.withLock { scanFailure } }
+        set { lock.withLock { scanFailure = newValue } }
+    }
+    var failLive: Bool {
+        get { lock.withLock { liveFailure } }
+        set { lock.withLock { liveFailure = newValue } }
+    }
+    func scan(_ provider: AIProvider, directory: URL) -> UsageSnapshot {
+        let (number, failure) = lock.withLock { scans += 1; return (scans, scanFailure) }
+        // Keep the first result in flight while the test switches providers.
+        if number == 1 { Thread.sleep(forTimeInterval: 0.15) }
+        var snapshot = UsageSnapshot()
+        if failure { snapshot.unreadableFiles = 1; return snapshot }
+        snapshot.fileCount = 1; snapshot.scannedAt = Date()
+        snapshot.today.input = directory.path == "/fixture-new" ? 333 : provider == .codex ? 111 : 222
+        return snapshot
+    }
+    func live() throws -> CodexLiveSnapshot {
+        let failure = lock.withLock { lives += 1; return liveFailure }
+        if failure { throw CodexLiveError.timeout }
+        return CodexLiveSnapshot(primary: UsageWindow(usedPercent: 25, minutes: 300, resetsAt: nil), secondary: nil, lifetimeTokens: nil, fetchedAt: Date())
+    }
+}
+
 @main
 struct RunChecks {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         var count = 0
         func check(_ name: String, _ body: () throws -> Void) rethrows {
             try body()
@@ -12,6 +45,13 @@ struct RunChecks {
         func expect(_ condition: @autoclosure () throws -> Bool) throws {
             let value = try condition()
             precondition(value)
+        }
+        func waitFor(_ condition: @MainActor () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(3)
+            while !condition() {
+                guard Date() < deadline else { throw CocoaError(.executableRuntimeMismatch) }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
         }
         let start = Date(timeIntervalSince1970: 1_000)
         check("Timer uses elapsed wall time, including missed ticks") {
@@ -121,6 +161,153 @@ struct RunChecks {
             let snapshot = UsageReader.scan(provider: .claude, directory: root, now: now)
             precondition(snapshot.today == TokenTally(input: 11, cached: 10, output: 5))
             precondition(snapshot.eventCount == 1 && snapshot.primary == nil)
+        }
+        try check("Growing logs read only appended bytes and retry an incomplete final record") {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-append-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("active.jsonl")
+            let now = Date()
+            func row(_ tokens: Int) throws -> Data {
+                try JSONSerialization.data(withJSONObject: ["timestamp": ISO8601DateFormatter().string(from: now), "type": "event_msg", "payload": ["type": "token_count", "info": ["total_token_usage": ["input_tokens": tokens, "output_tokens": 10]]]])
+            }
+            try (Data((String(repeating: " ", count: 10_000) + "\n").utf8) + row(100) + Data([10])).write(to: file)
+            let first = UsageReader.scan(provider: .codex, directory: root, now: now)
+            precondition(first.today.total == 110 && first.bytesRead > 10_000)
+            precondition(UsageReader.scan(provider: .codex, directory: root, now: now).bytesRead == 0)
+            let next = try row(180)
+            let split = next.count / 2
+            let writer = try FileHandle(forWritingTo: file)
+            defer { try? writer.close() }
+            try writer.seekToEnd()
+            try writer.write(contentsOf: next.prefix(split))
+            let partial = UsageReader.scan(provider: .codex, directory: root, now: now)
+            precondition(partial.today.total == 110 && partial.bytesRead == split)
+            try writer.write(contentsOf: next.suffix(from: split) + Data([10]))
+            let complete = UsageReader.scan(provider: .codex, directory: root, now: now)
+            precondition(complete.today.total == 190 && complete.eventCount == 2)
+            precondition(complete.bytesRead == next.count + 1 && complete.lastEventAt != nil)
+        }
+        try check("Truncated and atomically replaced logs rebuild their token baseline") {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-replace-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("active.jsonl")
+            let now = Date()
+            func data(_ input: Int) throws -> Data {
+                try JSONSerialization.data(withJSONObject: ["timestamp": ISO8601DateFormatter().string(from: now), "type": "assistant", "message": ["id": "message", "usage": ["input_tokens": input]]])
+            }
+            try data(9999).write(to: file)
+            precondition(UsageReader.scan(provider: .claude, directory: root, now: now).today.total == 9999)
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.truncate(atOffset: 0); try handle.write(contentsOf: data(1)); try handle.close()
+            precondition(UsageReader.scan(provider: .claude, directory: root, now: now).today.total == 1)
+            try data(22222).write(to: file, options: .atomic)
+            precondition(UsageReader.scan(provider: .claude, directory: root, now: now).today.total == 22222)
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now)!
+            let rolled = UsageReader.scan(provider: .claude, directory: root, now: tomorrow)
+            precondition(rolled.today.total == 0 && rolled.week.total == 22222)
+        }
+        try check("Oversized transcript records stay bounded and do not hide later usage") {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-large-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("large.jsonl")
+            let now = Date()
+            try Data(repeating: 32, count: 8 * 1024 * 1024 + 1).write(to: file)
+            let initial = UsageReader.scan(provider: .claude, directory: root, now: now)
+            precondition(initial.partial && initial.today.total == 0)
+            let writer = try FileHandle(forWritingTo: file)
+            try writer.seekToEnd()
+            let record = try JSONSerialization.data(withJSONObject: ["timestamp": ISO8601DateFormatter().string(from: now), "type": "assistant", "message": ["id": "message", "usage": ["input_tokens": 12]]])
+            try writer.write(contentsOf: Data([10]) + record + Data([10])); try writer.close()
+            let recovered = UsageReader.scan(provider: .claude, directory: root, now: now)
+            precondition(recovered.partial && recovered.today.total == 12 && recovered.bytesRead == record.count + 2)
+        }
+        check("Live refresh retries back off and success restores the one-minute cadence") {
+            var schedule = UsageRefreshSchedule()
+            let now = Date()
+            for delay in [30.0, 60, 120, 240, 300, 300] {
+                schedule.failed(at: now)
+                precondition(schedule.nextAttempt.timeIntervalSince(now) == delay)
+            }
+            schedule.succeeded(at: now)
+            precondition(schedule.failures == 0 && schedule.nextAttempt.timeIntervalSince(now) == 60)
+        }
+        check("The compact island uses fresh live limits and hides expired or stale percentages") {
+            let suite = "dev.notchest.compact-usage.\(UUID())"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(true, forKey: "aiLiveAutoRefresh")
+            let model = DeveloperModel(defaults: defaults)
+            let now = Date()
+            model.usage.primary = UsageWindow(usedPercent: 90, minutes: 300, resetsAt: now.addingTimeInterval(500))
+            model.usage.observedAt = now
+            model.liveCodex = CodexLiveSnapshot(primary: UsageWindow(usedPercent: 25, minutes: 300, resetsAt: now.addingTimeInterval(500)), secondary: nil, lifetimeTokens: nil, fetchedAt: now)
+            precondition(model.compactUsageWindow(at: now)?.usedPercent == 25)
+            precondition(model.compactUsageWindow(at: now.addingTimeInterval(121)) == nil)
+            model.liveAutoRefreshEnabled = false
+            precondition(model.compactUsageWindow(at: now)?.usedPercent == 90)
+            precondition(model.compactUsageWindow(at: now.addingTimeInterval(501)) == nil)
+            model.stop()
+        }
+        do {
+            let suite = "dev.notchest.usage-race.\(UUID())"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let service = UsageCheckService()
+            let model = DeveloperModel(defaults: defaults, scanUsage: { service.scan($0, directory: $1) }, fetchLive: { try service.live() })
+            defer { model.stop() }
+            model.refreshUsage()
+            try await waitFor { service.scanCount > 0 }
+            model.changeProvider(.claude)
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 222)
+            try await Task.sleep(nanoseconds: 200_000_000)
+            precondition(model.usage.today.total == 222)
+            model.setUsageDirectory(URL(fileURLWithPath: "/fixture-new"))
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 333)
+            model.refreshUsage(); model.trackingEnabled = false; model.trackingEnabled = true
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 333)
+            service.failScan = true
+            model.refreshUsage()
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 333 && model.localReadFailed)
+            model.changeProvider(.codex)
+            model.trackingEnabled = false
+            precondition(service.liveCount == 0 && !model.liveAutoRefreshEnabled)
+            model.liveAutoRefreshEnabled = true
+            try await waitFor { !model.liveCodexLoading }
+            precondition(model.liveCodex?.primary?.usedPercent == 25 && service.liveCount == 1)
+            model.refreshAutomatically()
+            precondition(!model.liveCodexLoading && service.liveCount == 1)
+            service.failLive = true
+            model.refreshAutomatically(at: Date().addingTimeInterval(61))
+            try await waitFor { !model.liveCodexLoading }
+            precondition(model.liveCodex?.primary?.usedPercent == 25 && model.liveCodexError != nil)
+            service.failLive = false
+            model.refreshAllUsage()
+            try await waitFor { !model.liveCodexLoading }
+            precondition(model.liveCodexError == nil)
+            model.liveAutoRefreshEnabled = false
+            let liveCount = service.liveCount
+            model.refreshAutomatically(at: .distantFuture)
+            precondition(service.liveCount == liveCount)
+            count += 1; print("PASS: Provider/folder changes reject stale scans; live refresh is opt-in, scheduled, recoverable and independent")
+            let pending = DeveloperModel(defaults: defaults, scanUsage: { _, _ in UsageSnapshot() }, fetchLive: {
+                Thread.sleep(forTimeInterval: 0.15)
+                return try service.live()
+            })
+            pending.refreshLiveCodex()
+            pending.stop()
+            try await Task.sleep(nanoseconds: 200_000_000)
+            precondition(!pending.liveCodexLoading && pending.liveCodex == nil)
+            let restored = DeveloperModel(defaults: defaults)
+            precondition(!restored.liveAutoRefreshEnabled && !restored.trackingEnabled)
+            restored.stop()
+            count += 1; print("PASS: Stopping rejects in-flight live results and tracking preferences survive relaunch")
         }
         check("Missing limits stay unknown rather than reporting zero") {
             precondition(UsageReader.parseWindow(NSNull()) == nil)

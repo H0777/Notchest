@@ -33,3 +33,14 @@ Notes:
 - Timers keep running while the island is collapsed. If a future release
   pauses non-essential work when collapsed, idle CPU should drop below this
   baseline — record the improvement here.
+
+## Unreleased AI usage reader — 2026-11-02
+
+Local polling now runs every five seconds; the 0.6.0 idle baseline above is
+historical and must not be taken as a measurement of this build. An actual
+Codex log scan read about 423 MiB in 13.4 seconds on its initial pass; an
+immediate incremental pass read about 64 KiB in 0.0024 seconds while logs were
+still growing. These are reader timings, not whole-app CPU or memory figures.
+Some records/files exceeded the reader limits and were disclosed as partial.
+Live Codex account limits fetched successfully. No Claude logs were present on
+the test machine; automated fixtures cover its parsing and growing records.

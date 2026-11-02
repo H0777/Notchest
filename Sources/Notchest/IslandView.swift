@@ -7,6 +7,7 @@ private let notchestCard = Color.white.opacity(0.055)
 
 struct IslandView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var developer: DeveloperModel
     let onHover: (Bool) -> Void
     let activate: () -> Void
     private var search: String { model.clipboardSearch }
@@ -23,6 +24,13 @@ struct IslandView: View {
         return .easeInOut(duration: model.islandPreferences.motion.navigationDuration)
     }
     private var contentIdentity: String { model.paletteVisible ? "palette" : model.tab.rawValue }
+
+    init(model: AppModel, onHover: @escaping (Bool) -> Void, activate: @escaping () -> Void) {
+        self.model = model
+        self.developer = model.developer
+        self.onHover = onHover
+        self.activate = activate
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,7 +102,7 @@ struct IslandView: View {
                 Text(model.timeLabel).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(notchestAccent)
             } else if model.stopwatchStarted != nil {
                 Text(model.stopwatchLabel).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(notchestAccent)
-            } else if let window = model.developer.usage.primary, (window.resetsAt ?? .distantFuture) > model.now {
+            } else if let window = developer.compactUsageWindow(at: model.now) {
                 Text("\(Int(100 - window.usedPercent))% AI").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(notchestAccent)
             } else if model.awake {
                 Image(systemName: "cup.and.saucer.fill").font(.system(size: 12)).foregroundStyle(notchestAccent)

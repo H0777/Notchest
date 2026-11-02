@@ -60,6 +60,12 @@ account usage, system readings, notes, music, and task events are illustrative.*
 | Mac utilities | Current weather, Apple Translation, stock watchlist, music and lyrics, system readings, supported audio controls, window tiling, image conversion, capture, OCR, ZIP, calculator, Shortcuts, camera mirror, calendar and reminders |
 | Yours | Display selection, island dimensions, accent colors, motion, English or right-to-left Arabic, launch at login |
 
+**Unreleased AI usage improvements:** local logs refresh every five seconds. Enable
+**Auto-refresh every minute** in AI usage for recurring Codex account limits.
+Failed requests retry automatically and retain the last successful data. Local
+statistics update only after the provider writes usage records. These changes
+are in development and are not in the published 0.6.0 download.
+
 Connected features have setup requirements. The [feature guide](https://h0777.github.io/Notchest/guide.html)
 and [status tracker](FEATURES.md) distinguish what is implemented, what needs permission,
 and what remains on the roadmap.
