@@ -44,3 +44,29 @@ still growing. These are reader timings, not whole-app CPU or memory figures.
 Some records/files exceeded the reader limits and were disclosed as partial.
 Live Codex account limits fetched successfully. No Claude logs were present on
 the test machine; automated fixtures cover its parsing and growing records.
+
+## Workspace build — 2026-11-02
+
+Local Apple Silicon Mac (`Mac16,12`), macOS 27.2, release build. One
+60-second sample per build, island collapsed after the initial real Codex
+log scan. Local usage polling every five seconds; live account polling,
+GitHub Actions and update checks off. Claude logs were absent. The runtime
+used real logs with partial-scan limits disclosed in the UI.
+
+| Build | Average sampled CPU | Peak sampled RSS |
+| --- | --- | --- |
+| Workspace draft before bounding Foundation temporary objects | 0.11% | 535.92 MiB |
+| Same workload with a per-chunk autorelease pool (`be574bb`) | 0.12% | 103.28 MiB |
+
+The pool bounds temporary Foundation objects on the Swift concurrency worker
+between 256 KiB read chunks. This removes the elevated retained RSS observed
+after large scans. The CPU difference is sampling noise; no speed or battery
+improvement is inferred from it. These are local samples, not guarantees for
+all hardware or log sizes, and the historical integer-rounded 0.6 baseline
+uses a different reporting precision.
+
+`Scripts/measure.sh` now preserves fractional CPU values and accepts
+`NOTCHEST_PID` to distinguish multiple running app instances. RSS is the
+process's resident set, not an allocation-leak measurement. Prolonged battery,
+multiple-display and older-system scenarios remain pending in
+[the validation matrix](Docs/VALIDATION.md).

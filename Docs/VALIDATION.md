@@ -16,7 +16,7 @@ record of evidence, not a claim that every supported Mac has been tested.
 | Website | Existing 39-feature gallery remains the released UI baseline; new screenshots are development previews |
 | Native UI English/Arabic, glass and preference controls | Passed on the local Mac: English/Arabic setup, presets, card reordering, both provider summaries, glass slider and live release checks |
 | Native helper to loopback API | Passed: synthetic PermissionRequest → working → Stop through the packaged helper; empty JSON replies; runtime token removed on disable |
-| Whole-app performance | New measurement recorded separately in PERFORMANCE.md when taken |
+| Whole-app performance | 60-second warm/collapsed sample: 0.12% CPU, 103.28 MiB peak RSS after bounding temporary scan buffers; see PERFORMANCE.md |
 | Multiple physical displays, hot-plug and mixed scaling | Pending access to additional displays; sizing geometry has automated coverage |
 | Intel and macOS 13–25 material fallback | Pending hardware/OS testing; build targets macOS 13 and guards newer APIs |
 | macOS 26 native glass | API is availability-guarded; CI builds against the macOS 26 SDK |

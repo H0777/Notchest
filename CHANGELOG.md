@@ -24,6 +24,9 @@ All notable changes to Notchest are documented here. The format follows
 
 ### Fixed
 
+- Bound temporary Foundation log-read buffers between chunks; a local large-log
+  sample reduced peak sampled RSS from 535.92 to 103.28 MiB after warm-up.
+
 - Refresh local AI usage every five seconds in common run-loop modes, on
   returning to the usage view, and after wake. Cancel outdated provider/folder
   reads so their results cannot overwrite the current selection.
