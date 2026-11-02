@@ -174,24 +174,29 @@ enum UsageReader {
         // Read bounded chunks, and cache only numeric entries, never transcript text.
         while remaining > 0 {
             try Task.checkCancellation()
-            let chunk = try handle.read(upToCount: min(262_144, remaining)) ?? Data()
-            guard !chunk.isEmpty else { throw CocoaError(.fileReadUnknown) }
-            remaining -= chunk.count
-            pending.append(chunk)
-            while let newline = pending.firstIndex(of: 10) {
-                let consumed = pending.distance(from: pending.startIndex, to: newline) + 1
-                if !parsed.discardingOversizedLine, consumed <= 8 * 1024 * 1024 {
-                    parseLine(Data(pending[..<newline]), provider: provider, parsed: &parsed, weekStart: weekStart, now: now, formatter: formatter, fallback: fallback)
-                } else { parsed.skippedOversizedLine = true }
-                parsed.discardingOversizedLine = false
-                parsed.offset += UInt64(consumed)
-                pending.removeSubrange(...newline)
-            }
-            if pending.count > 8 * 1024 * 1024 || parsed.discardingOversizedLine {
-                parsed.skippedOversizedLine = true
-                parsed.discardingOversizedLine = true
-                parsed.offset += UInt64(pending.count)
-                pending.removeAll(keepingCapacity: false)
+            // Swift concurrency workers need an explicit pool for Foundation's
+            // temporary NSData/JSON objects; otherwise a large first scan can
+            // retain hundreds of MiB after the numeric result is published.
+            try autoreleasepool {
+                let chunk = try handle.read(upToCount: min(262_144, remaining)) ?? Data()
+                guard !chunk.isEmpty else { throw CocoaError(.fileReadUnknown) }
+                remaining -= chunk.count
+                pending.append(chunk)
+                while let newline = pending.firstIndex(of: 10) {
+                    let consumed = pending.distance(from: pending.startIndex, to: newline) + 1
+                    if !parsed.discardingOversizedLine, consumed <= 8 * 1024 * 1024 {
+                        parseLine(Data(pending[..<newline]), provider: provider, parsed: &parsed, weekStart: weekStart, now: now, formatter: formatter, fallback: fallback)
+                    } else { parsed.skippedOversizedLine = true }
+                    parsed.discardingOversizedLine = false
+                    parsed.offset += UInt64(consumed)
+                    pending.removeSubrange(...newline)
+                }
+                if pending.count > 8 * 1024 * 1024 || parsed.discardingOversizedLine {
+                    parsed.skippedOversizedLine = true
+                    parsed.discardingOversizedLine = true
+                    parsed.offset += UInt64(pending.count)
+                    pending.removeAll(keepingCapacity: false)
+                }
             }
         }
         // A valid final record does not need a trailing newline. An incomplete
