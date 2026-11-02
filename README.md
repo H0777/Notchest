@@ -60,6 +60,11 @@ account usage, system readings, notes, music, and task events are illustrative.*
 | Mac utilities | Current weather, Apple Translation, stock watchlist, music and lyrics, system readings, supported audio controls, window tiling, image conversion, capture, OCR, ZIP, calculator, Shortcuts, camera mirror, calendar and reminders |
 | Yours | Display selection, island dimensions, accent colors, motion, English or right-to-left Arabic, launch at login |
 
+**Unreleased workspace improvements:** native clear glass and a transparency
+control, first-run connection checks, customizable home cards, opt-in task
+hooks and GitHub Actions tracking, usage alerts and stable-release checks.
+[Setup and scope →](Docs/INTEGRATIONS.md) · [Validation →](Docs/VALIDATION.md)
+
 **Unreleased AI usage improvements:** local logs refresh every five seconds. Enable
 **Auto-refresh every minute** in AI usage for recurring Codex account limits.
 Failed requests retry automatically and retain the last successful data. Local

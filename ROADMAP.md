@@ -10,6 +10,18 @@ visibility. English remains the default interface; Arabic remains optional.
 Advanced audio, hardware, and system integrations follow separate feasibility
 gates.
 
+## Current development direction — 2026-11-02
+
+The owner approved onboarding, project/agent activity, better AI summaries,
+workspace presets, reliability work and a more transparent Liquid Glass
+surface. These are being validated in the development branch after 0.6.0.
+See [integration setup](Docs/INTEGRATIONS.md) and the
+[validation matrix](Docs/VALIDATION.md).
+
+**Deferred by owner:** Developer ID signing and Apple notarization until an
+Apple Developer account is ready. Release checks can be used now; unattended
+installation remains deferred with the distribution trust work.
+
 ## Current gaps
 
 - Visual polish is implemented, but screen configurations, sleep/wake, older
@@ -17,8 +29,8 @@ gates.
 - Core service messages now follow the selected language. OS-provided errors
   and already-displayed errors or activity entries still need consistent
   handling when the language changes during a session.
-- Cursor/Copilot, trustworthy cost reporting, and native agent-hook and
-  approval flows are incomplete or unimplemented.
+- Cursor/Copilot, trustworthy cost reporting, and additional provider connectors are incomplete. Native task-state hooks are
+  observers; approvals remain in their original coding tools.
 - Daily integrations need account, permission, offline, and
   unsupported-device testing.
 - Developer-ID signing, notarization, and automatic updates are not

@@ -5,6 +5,23 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- First-run connection checks and Developer/Focus/Everyday presets, with
+  persistent, reorderable home cards and a background-transparency control.
+- Native clear `NSGlassEffectView` on macOS 26+, preserving the notch outline
+  and providing a behind-window material fallback on older macOS versions.
+- Side-by-side local Codex/Claude summaries and optional 80%/95% usage alerts.
+- Opt-in native agent hooks for task states, with private configuration
+  backups and removal, metadata-only local delivery and no approval decisions.
+- Opt-in GitHub Actions tracking for the selected project, plus local command
+  start/exit activities that preserve the active tab.
+- Manual and opt-in six-hour stable-release checks with official download-page
+  links. Developer ID, notarization and unattended installation are deferred
+  until the owner prepares Apple Developer membership.
+- Integration instructions and a validation matrix distinguishing automated,
+  native UI, real-account and pending hardware coverage.
+
 ### Fixed
 
 - Refresh local AI usage every five seconds in common run-loop modes, on

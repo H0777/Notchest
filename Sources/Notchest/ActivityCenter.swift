@@ -20,6 +20,8 @@ struct ActivityRequest: Decodable {
     var message: String?
     var state: String?
     var progress: Double?
+    var source: String?
+    var project: String?
 }
 
 enum ActivityHTTP {
@@ -54,7 +56,9 @@ enum ActivityHTTP {
               !request.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               request.title.count <= 100, (request.message?.count ?? 0) <= 500,
               (request.id?.count ?? 0) <= 80,
-              ["running", "success", "failure", "info"].contains(request.state ?? "info"),
+              ["running", "waiting", "success", "failure", "info"].contains(request.state ?? "info"),
+              request.source.map({ ["Codex", "Claude Code"].contains($0) }) ?? true,
+              (request.project?.count ?? 0) <= 100,
               request.progress.map({ $0.isFinite && (0...1).contains($0) }) ?? true else { return .failure(400) }
         return .success(request)
     }
@@ -148,9 +152,15 @@ final class ActivityCenter: ObservableObject {
     @Published var activities: [NotchestActivity] = []
     @Published var apiEnabled = false
     @Published var apiError: String?
+    @Published var hookMessage: ServiceText?
     private var server: LocalActivityServer?
+    private let runtimeFile: URL
     private(set) var token = ""
     var onRecord: ((NotchestActivity) -> Void)?
+
+    init(runtimeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Notchest/Runtime")) {
+        runtimeFile = runtimeDirectory.appendingPathComponent("activity.json")
+    }
 
     func startAPI() {
         guard server == nil else { return }
@@ -158,6 +168,13 @@ final class ActivityCenter: ObservableObject {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { apiError = "Could not generate a secure token"; return }
         token = Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         let server = LocalActivityServer(token: token)
+        server.onReady = { [weak self, weak server] in
+            Task { @MainActor in
+                guard let self, self.server === server else { return }
+                do { try PrivateFile.write(JSONSerialization.data(withJSONObject: ["port": 9999, "token": self.token]), to: self.runtimeFile) }
+                catch { self.apiError = error.localizedDescription; self.stopAPI() }
+            }
+        }
         server.onActivity = { [weak self] request in Task { @MainActor in self?.accept(request) } }
         server.onFailure = { [weak self, weak server] error in
             Task { @MainActor in
@@ -177,20 +194,37 @@ final class ActivityCenter: ObservableObject {
     func stopAPI() {
         server?.stop()
         server = nil
+        if let data = try? Data(contentsOf: runtimeFile), let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], value["token"] as? String == token {
+            try? FileManager.default.removeItem(at: runtimeFile)
+        }
         token = ""
         apiEnabled = false
     }
 
     func accept(_ request: ActivityRequest) {
-        record(id: request.id ?? UUID().uuidString, title: request.title, message: request.message ?? "", state: request.state ?? "info", progress: request.progress)
+        record(id: request.id ?? UUID().uuidString, title: request.source.map { $0 + (request.project.map { " · " + $0 } ?? "") } ?? request.title, message: request.message ?? "", state: request.state ?? "info", progress: request.progress, kind: request.source == nil ? "message" : "agent")
+    }
+
+    func configureHooks(_ provider: AgentIntegration, remove: Bool = false, arabic: Bool) {
+        guard let helper = HookInstaller.helper else { hookMessage = ServiceText("أعد بناء حزمة التطبيق لتوفير أداة الربط", "Rebuild the application bundle to include the integration helper"); return }
+        let alert = NSAlert()
+        alert.messageText = remove ? (arabic ? "إزالة ربط \(provider.title)؟" : "Remove \(provider.title) integration?") : (arabic ? "ربط \(provider.title)؟" : "Connect \(provider.title)?")
+        alert.informativeText = arabic ? "ثبّت الربط بعد نقل التطبيق إلى Applications. يتطلب إصداراً يدعم الخطافات. نعدّل ملف إعداداتها مع حفظ نسخة احتياطية محلية. الربط يرسل حالة المهمة واسم المشروع إلى Notchest على هذا الجهاز. تبقى الموافقات في الأداة الأصلية. أعد تشغيل الأداة وراجع الخطافات فيها عند الطلب." : "Install after moving the app to Applications. Requires a tool version with hooks support. Updates the hooks configuration and saves a local backup. Hooks send task state and project name to Notchest on this Mac. Approvals stay in the original tool. Restart the tool and review its hooks when prompted."
+        alert.addButton(withTitle: arabic ? "متابعة" : "Continue"); alert.addButton(withTitle: arabic ? "إلغاء" : "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            try HookInstaller.install(provider, helper: helper, configuration: provider.configuration(), remove: remove)
+            hookMessage = remove ? ServiceText("أُزيل ربط Notchest فقط؛ أعد تشغيل الأداة", "Removed only the Notchest hooks; restart the tool") : ServiceText("تم الربط. فعّل الواجهة المحلية وأعد تشغيل الأداة وراجع الخطافات فيها عند الطلب.", "Connected. Enable the local API, restart the tool, and review its hooks when prompted.")
+        } catch { hookMessage = ServiceText("تعذّر تعديل الإعدادات؛ لم نستبدل الملف غير الصالح", "Could not update settings; an invalid configuration is never overwritten") }
     }
 
     func record(id: String = UUID().uuidString, title: String, message: String, state: String = "info", progress: Double? = nil, url: URL? = nil, kind: String = "message") {
+        let previous = activities.first { $0.id == id }
         activities.removeAll { $0.id == id }
         let item = NotchestActivity(id: id, title: title, message: message, state: state, progress: progress, url: url, kind: kind)
         activities.insert(item, at: 0)
         activities = Array(activities.prefix(40))
-        onRecord?(item)
+        if kind != "agent" || previous?.state != state { onRecord?(item) }
     }
 
     func copyExample() {

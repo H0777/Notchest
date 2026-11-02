@@ -34,6 +34,10 @@ struct IslandSettingsView: View {
                 }
 
                 languageRow
+                WorkspaceSettingsView(app: model)
+                Button(model.text("إعداد الاتصالات والأدوات", "Set up connections & tools")) { model.showingSetup = true }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(notchestAccent)
+                UpdateSettingsView(app: model)
 
                 HStack(alignment: .top, spacing: 10) {
                     dimensionCard(

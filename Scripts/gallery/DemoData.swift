@@ -10,7 +10,24 @@ import Foundation
         defaults.set(true, forKey: "aiTracking")
         defaults.set(true, forKey: "clipboardEnabled")
         defaults.set("aurora", forKey: "accentTheme")
-        return AppModel(startServices: false)
+        defaults.removeObject(forKey: "workspace")
+        defaults.set(true, forKey: "setupCompleted.v1")
+        defaults.set(false, forKey: "aiLiveAutoRefresh")
+        defaults.set(false, forKey: "automaticUpdateChecks")
+        defaults.set(false, forKey: "watchProjectActions")
+        let dev = DeveloperModel(scanUsage: { provider, _ in GalleryDemo.usageFixture(provider) }, fetchLive: {
+            CodexLiveSnapshot(primary: UsageWindow(usedPercent: 28, minutes: 300, resetsAt: Date().addingTimeInterval(3600)), secondary: UsageWindow(usedPercent: 42, minutes: 10080, resetsAt: Date().addingTimeInterval(86400)), lifetimeTokens: nil, fetchedAt: Date())
+        })
+        return AppModel(startServices: false, developer: dev)
+    }
+    nonisolated static func usageFixture(_ provider: AIProvider) -> UsageSnapshot {
+        var value = UsageSnapshot()
+        value.today = provider == .codex ? TokenTally(input: 142800, cached: 101200, output: 18400) : TokenTally(input: 48000, cached: 26000, output: 6500)
+        value.week = TokenTally(input: 780000, cached: 524000, output: 96000)
+        let day = Calendar.current.startOfDay(for: Date())
+        value.daily = (0..<7).map { (Calendar.current.date(byAdding: .day, value: $0 - 6, to: day)!, 120000) }
+        value.fileCount = 7; value.scannedAt = Date(); value.lastEventAt = Date().addingTimeInterval(-30)
+        return value
     }
     static func apply(_ app: AppModel) {
         app.expanded = true; app.pinned = true; app.hoverEnabled = false

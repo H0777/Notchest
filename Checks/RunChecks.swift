@@ -53,6 +53,102 @@ struct RunChecks {
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
         }
+        check("Workspace presets keep a visible card and constrain background opacity") {
+            var prefs = WorkspacePreferences()
+            prefs.cards = [.usage, .usage, .focus]
+            precondition(prefs.validated().cards == [.usage, .focus])
+            prefs.cards = [.focus]; prefs.setVisible(.focus, false)
+            precondition(prefs.cards == [.focus])
+            prefs.setVisible(.notes, true); prefs.move(.notes, by: -1)
+            precondition(prefs.cards == [.notes, .focus])
+            prefs.backgroundOpacity = .nan
+            precondition(prefs.validated().backgroundOpacity == 0.42)
+            prefs.backgroundOpacity = 9
+            precondition(prefs.validated().backgroundOpacity == 0.75)
+        }
+        check("Setup completion and workspace changes survive relaunch without resetting dimensions") {
+            let suite = "dev.notchest.workspace.\(UUID())"
+            let store = UserDefaults(suiteName: suite)!
+            defer { store.removePersistentDomain(forName: suite) }
+            let first = AppModel(defaults: store, startServices: false)
+            precondition(!first.setupCompleted)
+            first.workspace.cards = WorkspacePreset.focus.cards
+            first.workspace.backgroundOpacity = 0.35
+            first.islandPreferences.expandedWidth = 900
+            first.finishSetup()
+            let restored = AppModel(defaults: store, startServices: false)
+            precondition(restored.setupCompleted && restored.workspace.cards == WorkspacePreset.focus.cards)
+            precondition(restored.workspace.backgroundOpacity == 0.35 && restored.islandPreferences.expandedWidth == 900)
+            first.shutdown(); restored.shutdown()
+        }
+        try check("Release checks compare numeric versions and reject untrusted or preview release pages") {
+            precondition(ReleaseVersion("v0.10.0")! > ReleaseVersion("0.9.9")!)
+            precondition(ReleaseVersion("0.7.0-beta") == nil && ReleaseVersion("0.7") == nil)
+            func data(_ page: String, preview: Bool = false) throws -> Data {
+                try JSONSerialization.data(withJSONObject: ["tag_name": "v0.7.0", "html_url": page, "draft": false, "prerelease": preview])
+            }
+            let valid = try AvailableRelease.parse(data("https://github.com/H0777/Notchest/releases/tag/v0.7.0"))
+            precondition(valid.version == "0.7.0")
+            for page in ["https://github.com.evil.example/H0777/Notchest/releases/tag/v0.7.0", "https://github.com/another/repo/releases/tag/v0.7.0"] {
+                do { _ = try AvailableRelease.parse(data(page)); preconditionFailure("Untrusted release accepted") } catch {}
+            }
+            do { _ = try AvailableRelease.parse(data("https://github.com/H0777/Notchest/releases/tag/v0.7.0", preview: true)); preconditionFailure("Preview accepted as stable") } catch {}
+        }
+        try check("Agent hooks expose metadata only and never return an approval decision") {
+            let input: [String: Any] = ["hook_event_name": "PermissionRequest", "session_id": "private-session", "cwd": "/tmp/Example", "prompt": "private-prompt", "tool_input": ["command": "private-command"], "last_assistant_message": "private-answer"]
+            let payload = HookPayload.make(input, provider: "codex")!
+            precondition(payload["state"] as? String == "waiting" && payload["project"] as? String == "Example")
+            let text = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+            precondition(!text.contains("private-") && !text.contains("decision") && !text.contains("/tmp"))
+            precondition(HookPayload.make(input, provider: "unsupported") == nil)
+            var stopped = input; stopped["hook_event_name"] = "Stop"
+            precondition(HookPayload.make(stopped, provider: "claude")?["state"] as? String == "success")
+        }
+        try check("Hook installation preserves user settings, backs up privately, removes only its own hooks") {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-hooks-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let file = folder.appendingPathComponent("settings.json")
+            let original = Data("{\"theme\":\"dark\",\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"other-hook\"}]}]}}".utf8)
+            try PrivateFile.write(original, to: file)
+            let helper = URL(fileURLWithPath: "/Applications/Preview's.app/Contents/MacOS/NotchestCommand")
+            let backup = try HookInstaller.install(.claude, helper: helper, configuration: file)!
+            try expect(try Data(contentsOf: backup) == original)
+            let installed = try Data(contentsOf: file)
+            let root = try JSONSerialization.jsonObject(with: installed) as! [String: Any]
+            precondition(root["theme"] as? String == "dark")
+            precondition(String(decoding: installed, as: UTF8.self).contains("other-hook"))
+            try expect(try HookInstaller.install(.claude, helper: helper, configuration: file) == nil)
+            let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as! NSNumber
+            precondition(mode.intValue & 0o077 == 0)
+            try HookInstaller.install(.claude, helper: helper, configuration: file, remove: true)
+            let removed = String(decoding: try Data(contentsOf: file), as: UTF8.self)
+            precondition(removed.contains("other-hook") && !removed.contains("--activity-hook"))
+            let invalid = Data("invalid settings".utf8)
+            try PrivateFile.write(invalid, to: file)
+            do { try HookInstaller.install(.codex, helper: helper, configuration: file); preconditionFailure("Invalid settings overwritten") } catch {}
+            try expect(try Data(contentsOf: file) == invalid)
+        }
+        check("Usage alerts fire once per threshold and reset window, and ignore expired snapshots") {
+            var policy = UsageAlertPolicy()
+            let now = Date(), reset = Date().addingTimeInterval(3600)
+            func window(_ percent: Double, _ reset: Date) -> UsageWindow { UsageWindow(usedPercent: percent, minutes: 300, resetsAt: reset) }
+            precondition(policy.evaluate([window(79, reset)], at: now).isEmpty)
+            precondition(policy.evaluate([window(82, reset)], at: now).count == 1)
+            precondition(policy.evaluate([window(84, reset)], at: now).isEmpty)
+            precondition(policy.evaluate([window(96, reset)], at: now).count == 1)
+            precondition(policy.evaluate([window(99, reset)], at: now).isEmpty)
+            precondition(policy.evaluate([window(99, now.addingTimeInterval(-1))], at: now).isEmpty)
+            precondition(policy.evaluate([window(99, reset.addingTimeInterval(3600))], at: now).count == 1)
+        }
+        try check("Project workflow parsing handles unfinished results and excludes unsafe links") {
+            let base: [String: Any] = ["databaseId": 123, "name": "Build", "displayTitle": "Check change", "status": "in_progress", "conclusion": NSNull(), "headBranch": "main", "url": "https://github.com/H0777/Notchest/actions/runs/123"]
+            let runs = try ProjectRun.parse(JSONSerialization.data(withJSONObject: [base]))
+            precondition(runs.count == 1 && runs[0].activityState == "running")
+            var done = base; done["status"] = "completed"; done["conclusion"] = "failure"
+            try expect(try ProjectRun.parse(JSONSerialization.data(withJSONObject: [done]))[0].activityState == "failure")
+            done["url"] = "javascript:alert(1)"
+            try expect(try ProjectRun.parse(JSONSerialization.data(withJSONObject: [done])).isEmpty)
+        }
         let start = Date(timeIntervalSince1970: 1_000)
         check("Timer uses elapsed wall time, including missed ticks") {
             var clock = FocusClock()
@@ -384,7 +480,7 @@ struct RunChecks {
             preferences.compactWidth = 200
             preferences.compactHeight = 34
             let frame = display.windowFrame(preferences: preferences, expanded: false)
-            precondition(frame.width >= 263 && frame.height >= 35)
+            precondition(frame.width >= display.notchWidth + 120 && frame.height >= 35)
             precondition(frame.midX == display.frame.midX && frame.maxY == display.frame.maxY)
         }
         check("Island dimensions fit small and external displays") {

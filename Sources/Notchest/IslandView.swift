@@ -8,6 +8,7 @@ private let notchestCard = Color.white.opacity(0.055)
 struct IslandView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var developer: DeveloperModel
+    @ObservedObject private var activities: ActivityCenter
     let onHover: (Bool) -> Void
     let activate: () -> Void
     private var search: String { model.clipboardSearch }
@@ -23,11 +24,12 @@ struct IslandView: View {
         guard motionAllowed else { return nil }
         return .easeInOut(duration: model.islandPreferences.motion.navigationDuration)
     }
-    private var contentIdentity: String { model.paletteVisible ? "palette" : model.tab.rawValue }
+    private var contentIdentity: String { model.showingSetup ? "setup" : model.paletteVisible ? "palette" : model.tab.rawValue }
 
     init(model: AppModel, onHover: @escaping (Bool) -> Void, activate: @escaping () -> Void) {
         self.model = model
         self.developer = model.developer
+        self.activities = model.activity
         self.onHover = onHover
         self.activate = activate
     }
@@ -65,7 +67,7 @@ struct IslandView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background { NotchestIslandSurface(expanded: model.expanded) }
+        .background { NotchestIslandSurface(expanded: model.expanded, opacity: model.workspace.validated().backgroundOpacity) }
         .clipShape(IslandShape(radius: model.expanded ? 30 : 17))
         .overlay {
             if targeted {
@@ -102,6 +104,9 @@ struct IslandView: View {
                 Text(model.timeLabel).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(notchestAccent)
             } else if model.stopwatchStarted != nil {
                 Text(model.stopwatchLabel).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(notchestAccent)
+            } else if let task = activities.activities.first(where: { $0.kind == "agent" && ["waiting", "running"].contains($0.state) && model.now.timeIntervalSince($0.updated) < 1800 }) {
+                Label(model.text(task.state == "waiting" ? "تدخّلك" : "يعمل", task.state == "waiting" ? "Action" : "Working"), systemImage: task.state == "waiting" ? "hand.raised.fill" : "ellipsis")
+                    .font(.system(size: 9, weight: .medium)).foregroundStyle(task.state == "waiting" ? NotchestPalette.amber : notchestAccent).help(task.title)
             } else if let window = developer.compactUsageWindow(at: model.now) {
                 Text("\(Int(100 - window.usedPercent))% AI").font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(notchestAccent)
             } else if model.awake {
@@ -112,6 +117,8 @@ struct IslandView: View {
             }
         }
         .padding(.horizontal, model.expanded ? 29 : 17)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
         .environment(\.layoutDirection, .leftToRight)
     }
 
@@ -166,7 +173,8 @@ struct IslandView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if model.paletteVisible { CommandPalette(app: model) }
+        if model.showingSetup { SetupView(app: model) }
+        else if model.paletteVisible { CommandPalette(app: model) }
         else {
         switch model.tab {
         case .home: ScrollView { home }
@@ -199,13 +207,21 @@ struct IslandView: View {
                 }.environment(\.locale, Locale(identifier: model.arabic ? "ar" : "en"))
             }.padding(.top, 2).padding(.bottom, 3)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                dashboardCard(icon: "chart.bar.xaxis", title: model.text("استهلاك الذكاء الاصطناعي", "AI usage at a glance"), value: "Codex · Claude Code", color: NotchestPalette.cyan) { model.tab = .developer; model.developer.section = .usage }
-                dashboardCard(icon: "chevron.left.forwardslash.chevron.right", title: model.text("مساحة المطوّر", "Developer workspace"), value: model.text("JSON، الأوامر، Git والمقتطفات", "JSON, commands, Git & snippets"), color: NotchestPalette.violet) { model.tab = .developer; model.developer.section = .text }
-                dashboardCard(icon: "timer", title: model.text("وقت للتركيز", "Make room for focus"), value: model.clock.isRunning ? model.timeLabel : model.text("ابدأ جلستك الأولى", "Find your flow"), color: NotchestPalette.coral) { model.tab = .focus }
-                dashboardCard(icon: "doc.on.clipboard", title: model.text("الحافظة", "Clipboard"), value: model.clipboardEnabled ? model.text("\(model.clips.count) عناصر هذا التشغيل", "\(model.clips.count) items this launch") : model.text("فعّلها عندما تحتاجها", "Ready when you are"), color: NotchestPalette.mint) { model.tab = .clipboard }
-                dashboardCard(icon: "tray", title: model.text("رفّ الملفات", "A place for your files"), value: model.text("\(model.shelf.count) ملفات في متناولك", "\(model.shelf.count) items within reach"), color: NotchestPalette.amber) { model.tab = .shelf }
-                dashboardCard(icon: "cup.and.saucer", title: model.text("إبقاء الجهاز مستيقظًا", "Keep Mac awake"), value: model.awake ? model.text("مفعّل لمدة ساعة", "On for one hour") : model.text("جاهز لجلسة طويلة", "For the longer sessions"), color: NotchestPalette.rose) { model.toggleAwake() }
+                ForEach(model.workspace.validated().cards) { card in homeCard(card) }
             }
+        }
+    }
+
+    @ViewBuilder private func homeCard(_ card: HomeCard) -> some View {
+        switch card {
+        case .usage: dashboardCard(icon: "chart.bar.xaxis", title: model.text("استهلاك الذكاء الاصطناعي", "AI usage at a glance"), value: "Codex · Claude Code", color: NotchestPalette.cyan) { model.tab = .developer; model.developer.section = .usage }
+        case .activity: dashboardCard(icon: "waveform.path", title: model.text("المشروع والمهام", "Project & tasks"), value: developer.workingDirectory.lastPathComponent, color: NotchestPalette.mint) { model.tab = .developer; developer.section = .activity }
+        case .code: dashboardCard(icon: "chevron.left.forwardslash.chevron.right", title: model.text("مساحة المطوّر", "Developer workspace"), value: model.text("JSON، الأوامر، Git والمقتطفات", "JSON, commands, Git & snippets"), color: NotchestPalette.violet) { model.tab = .developer; model.developer.section = .text }
+        case .focus: dashboardCard(icon: "timer", title: model.text("وقت للتركيز", "Make room for focus"), value: model.clock.isRunning ? model.timeLabel : model.text("ابدأ جلستك الأولى", "Find your flow"), color: NotchestPalette.coral) { model.tab = .focus }
+        case .clipboard: dashboardCard(icon: "doc.on.clipboard", title: model.text("الحافظة", "Clipboard"), value: model.clipboardEnabled ? model.text("\(model.clips.count) عناصر هذا التشغيل", "\(model.clips.count) items this launch") : model.text("فعّلها عندما تحتاجها", "Ready when you are"), color: NotchestPalette.mint) { model.tab = .clipboard }
+        case .shelf: dashboardCard(icon: "tray", title: model.text("رفّ الملفات", "A place for your files"), value: model.text("\(model.shelf.count) ملفات في متناولك", "\(model.shelf.count) items within reach"), color: NotchestPalette.amber) { model.tab = .shelf }
+        case .notes: dashboardCard(icon: "square.and.pencil", title: model.text("ملاحظاتك", "Your notes"), value: model.note.isEmpty ? model.text("فكرة تستحق الحفظ", "A place for your next idea") : String(model.note.prefix(40)), color: NotchestPalette.rose) { model.tab = .notes }
+        case .awake: dashboardCard(icon: "cup.and.saucer", title: model.text("إبقاء الجهاز مستيقظًا", "Keep Mac awake"), value: model.awake ? model.text("مفعّل لمدة ساعة", "On for one hour") : model.text("جاهز لجلسة طويلة", "For the longer sessions"), color: NotchestPalette.rose) { model.toggleAwake() }
         }
     }
 

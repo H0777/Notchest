@@ -58,9 +58,15 @@ struct UsageRefreshSchedule {
 @MainActor
 final class DeveloperModel: ObservableObject {
     var onCommandFinished: ((Int32) -> Void)?
+    var onUsageAlert: ((UsageLimitAlert) -> Void)?
     @Published var section: DeveloperSection = .usage
     @Published var provider: AIProvider = .codex
     @Published var usage = UsageSnapshot()
+    @Published private(set) var usageByProvider: [AIProvider: UsageSnapshot] = [:]
+    @Published var usageAlertsEnabled: Bool {
+        didSet { defaults.set(usageAlertsEnabled, forKey: "usageAlertsEnabled") }
+    }
+    private var alertPolicy = UsageAlertPolicy()
     @Published var refreshing = false
     @Published var liveCodex: CodexLiveSnapshot?
     @Published var liveCodexLoading = false
@@ -77,7 +83,7 @@ final class DeveloperModel: ObservableObject {
         didSet {
             defaults.set(trackingEnabled, forKey: "aiTracking")
             if trackingEnabled { refreshUsage() }
-            else { cancelUsageRefresh(); usage = UsageSnapshot(); localReadFailed = false }
+            else { cancelUsageRefresh(); usage = UsageSnapshot(); usageByProvider = [:]; localReadFailed = false }
         }
     }
     @Published var workbenchInput = ""
@@ -87,7 +93,9 @@ final class DeveloperModel: ObservableObject {
     @Published var commandOutput = ""
     @Published var commandRunning = false
     @Published var commandExit: Int32?
-    @Published var workingDirectory = FileManager.default.homeDirectoryForCurrentUser
+    @Published var workingDirectory = FileManager.default.homeDirectoryForCurrentUser {
+        didSet { defaults.set(workingDirectory.path, forKey: "workingDirectory") }
+    }
     @Published var gitOutput = ""
     @Published var gitBusy = false
     @Published var showingPulls = false
@@ -117,12 +125,17 @@ final class DeveloperModel: ObservableObject {
         self.defaults = defaults
         self.scanUsage = scanUsage
         self.fetchLive = fetchLive
+        usageAlertsEnabled = defaults.bool(forKey: "usageAlertsEnabled")
         trackingEnabled = defaults.object(forKey: "aiTracking") as? Bool ?? true
         liveAutoRefreshEnabled = defaults.bool(forKey: "aiLiveAutoRefresh")
+        workingDirectory = defaults.string(forKey: "workingDirectory").map { URL(fileURLWithPath: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
         snippets = defaults.data(forKey: "snippets").flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
     }
 
     var usageDirectory: URL {
+        directory(for: provider)
+    }
+    func directory(for provider: AIProvider) -> URL {
         if let path = defaults.string(forKey: "usageDirectory.\(provider.rawValue)") { return URL(fileURLWithPath: path) }
         return provider.defaultDirectory
     }
@@ -180,7 +193,7 @@ final class DeveloperModel: ObservableObject {
 
     func refreshAutomatically(at date: Date = Date()) {
         refreshUsage()
-        if liveAutoRefreshEnabled, provider == .codex, date >= liveSchedule.nextAttempt { refreshLiveCodex() }
+        if liveAutoRefreshEnabled, date >= liveSchedule.nextAttempt { refreshLiveCodex() }
     }
 
     func resumeUsageUpdates() {
@@ -214,32 +227,48 @@ final class DeveloperModel: ObservableObject {
         usageGeneration = generation
         let provider = provider
         let directory = usageDirectory
+        let directories = Dictionary(uniqueKeysWithValues: AIProvider.allCases.map { ($0, self.directory(for: $0)) })
         let scan = scanUsage
         usageTask = Task { [weak self] in
-            let worker = Task.detached(priority: .utility) { scan(provider, directory) }
-            let snapshot = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            let worker = Task.detached(priority: .utility) {
+                var result: [AIProvider: UsageSnapshot] = [:]
+                for item in AIProvider.allCases {
+                    guard !Task.isCancelled else { break }
+                    result[item] = scan(item, directories[item]!)
+                }
+                return result
+            }
+            let snapshots = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
             guard let self else { return }
             guard self.usageGeneration == generation else { return }
             defer { self.refreshing = false }
             guard !Task.isCancelled, self.provider == provider, self.usageDirectory == directory, self.trackingEnabled else { return }
+            for (item, snapshot) in snapshots {
+                let failed = snapshot.missingDirectory || snapshot.unreadableFiles > 0 || (snapshot.partial && snapshot.fileCount == 0)
+                if failed, snapshot.fileCount == 0, (self.usageByProvider[item]?.fileCount ?? 0) > 0 { continue }
+                self.usageByProvider[item] = snapshot
+            }
+            guard let snapshot = snapshots[provider] else { return }
             self.localReadFailed = snapshot.missingDirectory || snapshot.unreadableFiles > 0 || (snapshot.partial && snapshot.fileCount == 0)
             if self.localReadFailed, snapshot.fileCount == 0, self.usage.fileCount > 0 { return }
             self.usage = snapshot
+            if self.usageAlertsEnabled, !self.liveAutoRefreshEnabled, provider == .codex {
+                self.alertPolicy.evaluate([snapshot.primary, snapshot.secondary].compactMap { $0 }).forEach { self.onUsageAlert?($0) }
+            }
         }
     }
 
     func changeProvider(_ provider: AIProvider) {
         guard provider != self.provider else { refreshAllUsage(); return }
         cancelUsageRefresh()
-        cancelLiveRefresh()
         self.provider = provider
-        usage = UsageSnapshot()
+        usage = usageByProvider[provider] ?? UsageSnapshot()
         localReadFailed = false
         refreshAutomatically()
     }
 
     func refreshLiveCodex() {
-        guard provider == .codex, !liveCodexLoading else { return }
+        guard !liveCodexLoading else { return }
         liveCodexLoading = true
         let generation = UUID()
         liveGeneration = generation
@@ -253,6 +282,7 @@ final class DeveloperModel: ObservableObject {
             case .success(let snapshot):
                 self.liveCodex = snapshot; self.liveError = nil
                 self.liveSchedule.succeeded(at: Date())
+                if self.usageAlertsEnabled { self.alertPolicy.evaluate([snapshot.primary, snapshot.secondary].compactMap { $0 }).forEach { self.onUsageAlert?($0) } }
             case .failure(let error):
                 self.liveError = (error as? CodexLiveError)?.text ?? CodexLiveError.failed.text
                 self.liveSchedule.failed(at: Date())
@@ -274,6 +304,7 @@ final class DeveloperModel: ObservableObject {
     func setUsageDirectory(_ url: URL) {
         cancelUsageRefresh()
         defaults.set(url.path, forKey: "usageDirectory.\(provider.rawValue)")
+        usageByProvider[provider] = nil
         usage = UsageSnapshot(); localReadFailed = false
         refreshUsage()
     }

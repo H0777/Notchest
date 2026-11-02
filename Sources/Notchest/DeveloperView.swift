@@ -40,16 +40,22 @@ struct DeveloperView: View {
     private var usage: some View {
         ScrollView {
             VStack(spacing: 9) {
-                HStack(spacing: 8) {
+                HStack(spacing: 9) {
                     ForEach(AIProvider.allCases) { provider in
+                        let snapshot = dev.usageByProvider[provider]
                         Button { dev.changeProvider(provider) } label: {
-                            HStack(spacing: 6) {
-                                Circle().fill(dev.provider == provider ? notchestAccent : .white.opacity(0.2)).frame(width: 5, height: 5)
-                                Text(provider.rawValue).font(.system(size: 12, weight: .semibold))
-                            }.padding(.horizontal, 12).padding(.vertical, 8)
-                                .background(dev.provider == provider ? .white.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack { Text(provider.rawValue).font(.system(size: 12, weight: .semibold)); Spacer(); if dev.provider == provider { Image(systemName: "checkmark.circle.fill").foregroundStyle(notchestAccent) } }
+                                Text(usageSummaryStatus(snapshot))
+                                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.8))
+                                if let date = snapshot?.scannedAt { (Text(app.text("آخر قراءة: ", "Checked: ")) + Text(date, style: .relative)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.65)) }
+                            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).notchestPanel(cornerRadius: 14, tint: dev.provider == provider ? notchestAccent : nil)
                         }.buttonStyle(.plain)
                     }
+                }
+                HStack(spacing: 8) {
+                    Text(dev.provider.rawValue).font(.system(size: 11, weight: .semibold))
+                    Toggle(app.text("تنبيهات Codex عند 80% و95%", "Codex alerts at 80% and 95%"), isOn: $dev.usageAlertsEnabled).toggleStyle(.checkbox).font(.system(size: 10))
                     Spacer()
                     if dev.refreshing { ProgressView().controlSize(.mini) }
                     Toggle(app.text("قراءة الإحصاءات المحلية", "Read local usage"), isOn: $dev.trackingEnabled).labelsHidden().toggleStyle(.switch).controlSize(.mini).tint(notchestAccent)
@@ -125,6 +131,18 @@ struct DeveloperView: View {
             }
         }
         .onAppear { dev.refreshAutomatically() }
+    }
+
+    private func usageSummaryStatus(_ snapshot: UsageSnapshot?) -> String {
+        guard dev.trackingEnabled else { return app.text("القراءة متوقفة", "Tracking paused") }
+        guard let snapshot else { return app.text("بانتظار القراءة", "Waiting for scan") }
+        if snapshot.missingDirectory { return app.text("اختر مجلّد السجلات", "Choose log folder") }
+        if snapshot.fileCount == 0 {
+            if snapshot.unreadableFiles > 0 { return app.text("تعذّرت قراءة السجلات", "Could not read logs") }
+            if snapshot.partial { return app.text("تجاوزت حدود القراءة", "Reading limits exceeded") }
+            return app.text("لا توجد سجلات استخدام", "No usage logs yet")
+        }
+        return app.text("\(short(snapshot.today.total)) رموز اليوم", "\(short(snapshot.today.total)) tokens today")
     }
 
     /// Live account limits come from the Codex CLI connection and must stay

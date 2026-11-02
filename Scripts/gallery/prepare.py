@@ -15,7 +15,7 @@ p = source / 'NotchestApp.swift'
 s = p.read_text().replace('private let model = AppModel()', 'private let model = GalleryDemo.makeModel()')
 assert 'GalleryDemo.makeModel()' in s
 s = s.replace('        setupHotKey()', '        GalleryDemo.apply(model)')
-for line in ['        model.developer.start()\n', '        model.monitor.start()\n', '        model.weather.start()\n', '        model.tools.start()\n']:
+for line in ['        model.developer.start()\n', '        model.monitor.start()\n', '        model.weather.start()\n', '        model.tools.start()\n', '        model.updates.start()\n', '        model.project.start()\n']:
     assert line in s
     s = s.replace(line, '')
 # Keep the application's normal navigation callbacks intact.
