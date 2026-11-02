@@ -62,7 +62,7 @@ struct RunChecks {
             prefs.setVisible(.notes, true); prefs.move(.notes, by: -1)
             precondition(prefs.cards == [.notes, .focus])
             prefs.backgroundOpacity = .nan
-            precondition(prefs.validated().backgroundOpacity == 0.42)
+            precondition(prefs.validated().backgroundOpacity == 0.62)
             prefs.backgroundOpacity = 9
             precondition(prefs.validated().backgroundOpacity == 0.75)
         }

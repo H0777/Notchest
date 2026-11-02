@@ -57,7 +57,7 @@ enum NotchestPalette {
         Color(red: 0.72, green: 0.18, blue: 0.82)
     ]
     static let ink = Color(red: 0.045, green: 0.065, blue: 0.105)
-    static let secondary = Color.white.opacity(0.66)
+    static let secondary = Color.white.opacity(0.78)
 
     static func menuImage() -> NSImage {
         let image = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { rect in
@@ -162,7 +162,7 @@ final class NotchestWindowBackdrop: NSView {
 
 struct NotchestIslandSurface: View {
     let expanded: Bool
-    var opacity: Double = 0.42
+    var opacity: Double = 0.62
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 

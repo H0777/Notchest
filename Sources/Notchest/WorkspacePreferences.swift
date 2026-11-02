@@ -39,13 +39,13 @@ enum WorkspacePreset: String, CaseIterable, Identifiable {
 struct WorkspacePreferences: Codable, Equatable {
     var cards: [HomeCard] = WorkspacePreset.developer.cards
     /// The dark readability layer above the system's behind-window material.
-    var backgroundOpacity = 0.42
+    var backgroundOpacity = 0.62
     func validated() -> Self {
         var result = self
         var seen = Set<HomeCard>()
         result.cards = cards.filter { seen.insert($0).inserted }
         if result.cards.isEmpty { result.cards = [.usage] }
-        result.backgroundOpacity = backgroundOpacity.isFinite ? min(0.75, max(0.08, backgroundOpacity)) : 0.42
+        result.backgroundOpacity = backgroundOpacity.isFinite ? min(0.75, max(0.08, backgroundOpacity)) : 0.62
         return result
     }
     mutating func setVisible(_ card: HomeCard, _ visible: Bool) {
