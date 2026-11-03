@@ -29,9 +29,16 @@ trap 'rm -rf "$STAGING"' EXIT
 ZIP="$STAGING/Notchest-$VERSION.zip"
 DMG="$STAGING/Notchest-$VERSION.dmg"
 # ditto preserves executable permissions and the ad-hoc code signature.
-ditto -c -k --keepParent "$APP" "$ZIP"
+# The ZIP carries a bilingual first-open guide beside the app, because most
+# one-time Gatekeeper friction comes from people not knowing the approval step.
+ZIP_STAGE="$(mktemp -d "$PROJECT_DIR/dist/.zipstage.XXXXXX")"
+cp -R "$APP" "$ZIP_STAGE/Notchest.app"
+cp "$PROJECT_DIR/Packaging/READ-ME-FIRST.txt" "$ZIP_STAGE/READ-ME-FIRST.txt"
+ditto -c -k "$ZIP_STAGE" "$ZIP"
+rm -rf "$ZIP_STAGE"
 ditto -x -k "$ZIP" "$STAGING/zip-check"
 codesign --verify --deep --strict "$STAGING/zip-check/Notchest.app"
+test -s "$STAGING/zip-check/READ-ME-FIRST.txt"
 "$TOOLS/bin/python" "$PROJECT_DIR/Scripts/build-dmg.py" "$APP" "$DMG"
 "$TOOLS/bin/python" "$PROJECT_DIR/Scripts/check-dmg.py" "$DMG" --app "$APP"
 

@@ -3,6 +3,16 @@
 All notable changes to Notchest are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.1] — 2026-11-03
+
+### Added
+
+- `Packaging/READ-ME-FIRST.txt`: a bilingual (Arabic/English) three-step
+  first-open guide shipped **inside every ZIP release** beside the app —
+  covering extraction, the one-time Open Anyway approval, an optional
+  `xattr` Terminal alternative, and why the warning appears. `release.sh`
+  verifies the guide ships inside each ZIP before publication.
+
 ## [0.7.0] — 2026-11-03
 
 ### Added

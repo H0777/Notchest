@@ -1,0 +1,46 @@
+================================================================================
+ Notchest — READ ME FIRST / اقرأني أولًا
+================================================================================
+
+ARABIC / العربية
+================
+
+شكرًا لتحميل Notchest! التثبيت ٣ خطوات:
+
+1) فُكّ الضغط عن هذا الملف.
+2) اسحب Notchest.app إلى مجلد Applications (أو اتركه في مكانه).
+3) عند أول فتح قد يظهر تنبيه من macOS — هذا طبيعي للنسخ غير المصدّقة.
+   أسهل طريقة:
+   • حاول فتح التطبيق مرة (سيُمنع).
+   • افتح: إعدادات النظام ← الخصوصية والأمان ← انزل لأسفل.
+   • اضغط «فتح على أي حال» بجانب Notchest ثم أكّد بكلمة سر الجهاز.
+   • افتح التطبيق من جديد — ولن يتكرر التنبيه لهذه النسخة.
+
+طريقة بديلة عبر الطرفية (اختيارية):
+   xattr -dr com.apple.quarantine "/Applications/Notchest.app"
+
+لماذا يظهر التنبيه؟ التطبيق مجاني ومفتوح المصدر ولم يُدفع بعد اشتراك
+Apple Developer المطلوب للتصديق. المصدر كامل على GitHub ويمكنك بناؤه بنفسك:
+https://github.com/H0777/Notchest
+
+ENGLISH
+=======
+
+Thanks for downloading Notchest! Installing takes three steps:
+
+1) Extract this archive.
+2) Drag Notchest.app into Applications (or leave it where it is).
+3) On first open, macOS may show a warning — normal for un-notarized apps.
+   Easiest way:
+   • Try opening the app once (it will be blocked).
+   • Open System Settings → Privacy & Security, scroll down.
+   • Click "Open Anyway" next to Notchest, confirm with your Mac password.
+   • Open the app again — the warning will not return for this version.
+
+Terminal alternative (optional):
+   xattr -dr com.apple.quarantine "/Applications/Notchest.app"
+
+Why the warning? Notchest is free and open source; the Apple Developer
+membership required for notarization has not been paid yet. The full source
+is on GitHub and you can build it yourself:
+https://github.com/H0777/Notchest
