@@ -168,18 +168,20 @@ struct NotchestIslandSurface: View {
 
     var body: some View {
         ZStack {
-            if !expanded {
-                Color.black
-            } else if reduceTransparency || contrast == .increased {
+            if reduceTransparency || contrast == .increased {
                 NotchestPalette.ink
             } else {
-                NotchestPalette.ink.opacity(opacity)
+                // One glass family for both states: the slim collapsed bar shows
+                // the same transparency as the expanded island instead of a
+                // solid black block, with a stronger top scrim so the status
+                // text stays readable at the bar's height.
+                NotchestPalette.ink.opacity(expanded ? opacity : opacity * 0.8)
                 GeometryReader { geometry in
                     ZStack {
                         RadialGradient(colors: [NotchestPalette.cyan.opacity(0.18), .clear], center: UnitPoint(x: 0, y: 0.15), startRadius: 0, endRadius: geometry.size.width * 0.7)
                         RadialGradient(colors: [NotchestPalette.violet.opacity(0.22), .clear], center: UnitPoint(x: 1, y: 0.35), startRadius: 0, endRadius: geometry.size.width * 0.72)
                         RadialGradient(colors: [NotchestPalette.rose.opacity(0.10), .clear], center: UnitPoint(x: 0.45, y: 1.1), startRadius: 0, endRadius: geometry.size.width * 0.6)
-                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.17))
+                        LinearGradient(colors: [.black.opacity(expanded ? 0.5 : 0.6), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: expanded ? 0.17 : 0.55))
                     }
                 }
             }

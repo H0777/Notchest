@@ -3,11 +3,11 @@
 All notable changes to Notchest are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.7.0] — 2026-11-03
 
 ### Added
 
-- Opt-in system notifications via UNUserNotificationCenter for the app's own events: focus completion, new files in Downloads, connected drives, and stock alerts. Opt-in from Settings; authorization is requested only when enabled; wording follows the interface language; checks grow to 37+.
+- Opt-in system notifications via UNUserNotificationCenter for the app's own events: focus completion, new files in Downloads, connected drives, and stock alerts. Opt-in from Settings; authorization is requested only when enabled; wording follows the interface language.
 - First-run connection checks and Developer/Focus/Everyday presets, with
   persistent, reorderable home cards and a background-transparency control.
 - Native clear `NSGlassEffectView` on macOS 26+, preserving the notch outline
@@ -22,6 +22,13 @@ All notable changes to Notchest are documented here. The format follows
   until the owner prepares Apple Developer membership.
 - Integration instructions and a validation matrix distinguishing automated,
   native UI, real-account and pending hardware coverage.
+
+### Changed
+
+- The collapsed island now shares the same transparent-glass surface as the
+  expanded island instead of rendering as a solid black block, with a
+  slightly stronger top scrim so status text stays readable; the
+  reduce-transparency and increased-contrast fallbacks are unchanged.
 
 ### Fixed
 
