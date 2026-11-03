@@ -25,9 +25,11 @@ def check(image, original):
                         "-mountpoint", str(mount), str(image)], check=True)
         try:
             visible = {p.name for p in mount.iterdir() if not p.name.startswith(".")}
-            require(visible == {"Notchest.app", "Applications"}, f"Unexpected visible items: {visible}")
+            require(visible == {"Notchest.app", "Applications", "READ-ME-FIRST.txt"},
+                    f"Unexpected visible items: {visible}")
             require((mount / "Applications").is_symlink(), "Applications must be a symbolic link")
             require(os.readlink(mount / "Applications") == "/Applications", "Wrong installation destination")
+            require((mount / "READ-ME-FIRST.txt").stat().st_size > 200, "First-open guide is missing or empty")
             require((mount / ".background.tiff").is_file(), "Missing Retina background")
             require((mount / ".VolumeIcon.icns").is_file(), "Missing volume icon")
             with DSStore.open(str(mount / ".DS_Store"), "r") as store:
@@ -38,6 +40,7 @@ def check(image, original):
                 require(view["iconSize"] == 112 and view["arrangeBy"] == "none", "Icon layout would move the targets")
                 require(store["Notchest.app"]["Iloc"] == (200, 278), "App is outside its well")
                 require(store["Applications"]["Iloc"] == (560, 278), "Applications is outside its well")
+                require(store["READ-ME-FIRST.txt"]["Iloc"] == (380, 430), "Guide icon is misplaced")
             app = mount / "Notchest.app"
             subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
             with (app / "Contents/Info.plist").open("rb") as source:

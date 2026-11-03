@@ -3,6 +3,16 @@
 All notable changes to Notchest are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.2] — 2026-11-03
+
+### Added
+
+- The DMG now carries the same bilingual `READ-ME-FIRST.txt` guide as the
+  ZIP, positioned between the app and the Applications destination in the
+  branded installer window. The DMG validator asserts its presence, size and
+  icon position alongside the existing signature and layout checks, so both
+  packages explain the one-time Gatekeeper approval by themselves.
+
 ## [0.7.1] — 2026-11-03
 
 ### Added
