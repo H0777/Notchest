@@ -40,11 +40,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.activity.onRecord = { [weak self] item in self?.model.flashActivity(item) }
         model.monitor.onEvent = { [weak self] title, message, url, kind in
             self?.model.activity.record(title: title, message: message, url: url, kind: kind)
+            self?.model.notifications.postMonitorEvent(title: title, message: message, kind: kind)
         }
         model.monitor.start()
         model.weather.start()
         model.stocks.onAlert = { [weak self] symbol, details in
             self?.model.activity.record(title: symbol, message: details, state: "info", kind: "stock")
+            guard let self else { return }
+            self.model.notifications.post(self.model.notifications.stockAlertText, ServiceText("\(symbol) · \(details)", "\(symbol) · \(details)"))
         }
         model.developer.onCommandFinished = { [weak self] code in
             guard let self else { return }

@@ -57,6 +57,7 @@ account usage, system readings, notes, music, and task events are illustrative.*
 | Everyday | Focus timer, stopwatch, autosaved notes, opt-in clipboard, file and app shelf, keep-awake session |
 | Developer | SwiftTerm terminal, command runner, JSON, Base64, URL encoding, hashes, UUID, time, regex, Git, GitHub PRs, snippets, local activity API |
 | AI usage | Local Codex/Claude statistics and on-demand live Codex limits; source and update time stay visible |
+| Notifications (opt-in) | System notifications for focus completion, new downloads, connected drives, and stock alerts — app-local events via the standard macOS center |
 | Mac utilities | Current weather, Apple Translation, stock watchlist, music and lyrics, system readings, supported audio controls, window tiling, image conversion, capture, OCR, ZIP, calculator, Shortcuts, camera mirror, calendar and reminders |
 | Yours | Display selection, island dimensions, accent colors, motion, English or right-to-left Arabic, launch at login |
 

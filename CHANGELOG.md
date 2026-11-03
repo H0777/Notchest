@@ -5,6 +5,17 @@ All notable changes to Notchest are documented here. The format follows
 
 ## [Unreleased]
 
+### Added (toward 0.7)
+
+- Opt-in system notifications via UNUserNotificationCenter for the app's own
+  events: focus-session completion, new files in Downloads, connected drives,
+  and stock alerts. The toggle lives in Settings; authorization is requested
+  only when enabled; wording follows the interface language through
+  ServiceText; island toasts and the activity feed work independently. Checks
+  grow from 36 to 37 (single-language wording plus toggle persistence). The
+  on-screen notification appears after the macOS notification permission is
+  granted on first enable.
+
 ### Documentation
 
 - Add prominent bilingual first-launch guidance beside download links, in the
@@ -23,6 +34,7 @@ All notable changes to Notchest are documented here. The format follows
   the app, site and release assets stay aligned.
 
 ### Development and release tooling
+
 
 - Community and safety files: `SECURITY.md` (private vulnerability
   reporting), `CONTRIBUTING.md`, pull-request and feature-request templates.

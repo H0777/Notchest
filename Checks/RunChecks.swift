@@ -393,6 +393,26 @@ struct RunChecks {
             precondition(model.developer.arabicUI == flag && model.tools.arabicUI == flag && model.monitor.arabicUI == flag && model.weather.arabicUI == flag && model.stocks.arabicUI == flag)
             model.shutdown()
         }
+        check("Notification wording resolves to one language and the toggle persists") {
+            let suite = "dev.notchest.notifications.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let center = NotchestNotifications(defaults: defaults)
+            precondition(!center.enabled)
+            for text in [center.focusCompleteText, center.focusBodyText, center.stockAlertText, center.downloadsTitleText, center.volumesTitleText] {
+                let english = text.resolved(arabicUI: false)
+                let arabic = text.resolved(arabicUI: true)
+                precondition(!english.isEmpty && !arabic.isEmpty && english != arabic)
+                precondition(!ServiceText.containsArabicLetters(english))
+            }
+            center.arabicUI = true
+            precondition(center.focusCompleteText.resolved(arabicUI: true) == "اكتملت جلسة التركيز")
+            center.arabicUI = false
+            precondition(center.focusCompleteText.resolved(arabicUI: false) == "Focus session complete")
+            center.enabled = true
+            let reloaded = NotchestNotifications(defaults: defaults)
+            precondition(reloaded.enabled)
+        }
         print("\(count) checks passed.")
     }
 }

@@ -71,6 +71,7 @@ final class AppModel: ObservableObject {
     let monitor = SystemMonitor()
     let weather = WeatherModel()
     let stocks = StocksModel()
+    let notifications = NotchestNotifications()
     @Published var activityFlash: NotchestActivity?
     @Published var display = IslandDisplay()
     @Published var availableDisplays: [NotchestDisplayOption] = []
@@ -170,6 +171,7 @@ final class AppModel: ObservableObject {
         monitor.arabicUI = arabic
         weather.arabicUI = arabic
         stocks.arabicUI = arabic
+        notifications.arabicUI = arabic
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -227,6 +229,7 @@ final class AppModel: ObservableObject {
             saveClock()
             NSSound(named: "Glass")?.play()
             showToast(text("اكتملت جلستك. وقت الاستراحة!", "Session complete. Take a breath."))
+            notifications.post(notifications.focusCompleteText, notifications.focusBodyText)
             tab = .focus
             expanded = true
         }
