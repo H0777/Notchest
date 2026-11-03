@@ -40,27 +40,29 @@ struct DeveloperView: View {
     private var usage: some View {
         ScrollView {
             VStack(spacing: 9) {
-                HStack(spacing: 8) {
+                HStack(spacing: 9) {
                     ForEach(AIProvider.allCases) { provider in
+                        let snapshot = dev.usageByProvider[provider]
                         Button { dev.changeProvider(provider) } label: {
-                            HStack(spacing: 6) {
-                                Circle().fill(dev.provider == provider ? notchestAccent : .white.opacity(0.2)).frame(width: 5, height: 5)
-                                Text(provider.rawValue).font(.system(size: 12, weight: .semibold))
-                            }.padding(.horizontal, 12).padding(.vertical, 8)
-                                .background(dev.provider == provider ? .white.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 9))
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack { Text(provider.rawValue).font(.system(size: 12, weight: .semibold)); Spacer(); if dev.provider == provider { Image(systemName: "checkmark.circle.fill").foregroundStyle(notchestAccent) } }
+                                Text(usageSummaryStatus(snapshot))
+                                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.8))
+                                if let date = snapshot?.scannedAt { (Text(app.text("آخر قراءة: ", "Checked: ")) + Text(date, style: .relative)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.65)) }
+                            }.padding(12).frame(maxWidth: .infinity, alignment: .leading).notchestPanel(cornerRadius: 14, tint: dev.provider == provider ? notchestAccent : nil)
                         }.buttonStyle(.plain)
                     }
+                }
+                HStack(spacing: 8) {
+                    Text(dev.provider.rawValue).font(.system(size: 11, weight: .semibold))
+                    Toggle(app.text("تنبيهات Codex عند 80% و95%", "Codex alerts at 80% and 95%"), isOn: $dev.usageAlertsEnabled).toggleStyle(.checkbox).font(.system(size: 10))
                     Spacer()
                     if dev.refreshing { ProgressView().controlSize(.mini) }
-                    if dev.provider == .codex {
-                        Button(dev.liveCodexLoading ? app.text("جارٍ الاتصال…", "Connecting…") : app.text("حدود الحساب الحيّة", "Live account limits")) { dev.refreshLiveCodex() }
-                            .buttonStyle(.plain).font(.system(size: 9)).foregroundStyle(notchestAccent).disabled(dev.liveCodexLoading)
-                    }
                     Toggle(app.text("قراءة الإحصاءات المحلية", "Read local usage"), isOn: $dev.trackingEnabled).labelsHidden().toggleStyle(.switch).controlSize(.mini).tint(notchestAccent)
-                    smallButton("arrow.clockwise", app.text("تحديث", "Refresh")) { dev.refreshUsage() }
+                    smallButton("arrow.clockwise", app.text("تحديث", "Refresh")) { dev.refreshAllUsage() }
                     smallButton("folder", app.text("مجلّد السجلّات", "Logs folder")) { dev.chooseUsageFolder() }
                 }
-                if dev.provider == .codex, dev.liveCodex != nil || dev.liveCodexError != nil {
+                if dev.provider == .codex {
                     liveLimits
                 }
                 if !dev.trackingEnabled {
@@ -68,11 +70,14 @@ struct DeveloperView: View {
                         Text(app.text("قراءة الإحصاءات متوقّفة", "Usage tracking is paused"))
                         Button(app.text("تفعيل القراءة المحلية", "Enable local tracking")) { dev.trackingEnabled = true }.buttonStyle(.borderedProminent).tint(notchestAccent).foregroundStyle(.black)
                     }.padding(25)
-                } else if dev.usage.missingDirectory || (dev.usage.fileCount == 0 && !dev.refreshing) {
+                } else if dev.usage.fileCount == 0 && dev.refreshing {
+                    ProgressView(app.text("جارٍ قراءة السجلات…", "Reading usage logs…"))
+                        .font(.system(size: 11)).padding(25)
+                } else if dev.usage.fileCount == 0 {
                     VStack(spacing: 10) {
                         Image(systemName: "chart.bar.xaxis").font(.system(size: 27, weight: .light)).foregroundStyle(notchestAccent)
-                        Text(app.text("لم نعثر على سجلّات \(dev.provider.rawValue)", "No \(dev.provider.rawValue) logs found" )).font(.system(size: 15, weight: .semibold))
-                        Text(app.text("استخدم الأداة محليًا، أو اختر مجلّد سجلّاتها من الزر أعلاه.", "Use the tool locally, or select its log folder above."))
+                        Text(dev.localReadFailed && !dev.usage.missingDirectory ? app.text("تعذّرت قراءة السجلات", "Could not read usage logs") : app.text("لم نعثر على سجلّات \(dev.provider.rawValue)", "No \(dev.provider.rawValue) logs found" )).font(.system(size: 15, weight: .semibold))
+                        Text(dev.usage.partial ? app.text("تجاوزت السجلات حدود القراءة. اختر مجلداً أصغر أو سجلات أحدث.", "The logs exceed the reading limits. Choose a smaller folder or more recent logs.") : app.text("استخدم الأداة محليًا، أو اختر مجلّد سجلّاتها من الزر أعلاه. إذا كان المجلّد موجوداً، تحقّق من صلاحيات القراءة.", "Use the tool locally, or select its log folder above. If the folder exists, check read permissions."))
                             .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
                     }.frame(maxWidth: .infinity).padding(.vertical, 32)
                 } else {
@@ -83,6 +88,7 @@ struct DeveloperView: View {
                     }
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 11) {
+                            Text(app.text("حدود من السجلات المحلية", "LIMITS FROM LOCAL LOGS")).font(.system(size: 9, weight: .medium)).foregroundStyle(.white.opacity(0.6))
                             if let primary = dev.usage.primary { window(primary) }
                             if let secondary = dev.usage.secondary { window(secondary) }
                             if dev.usage.primary == nil && dev.usage.secondary == nil {
@@ -105,20 +111,38 @@ struct DeveloperView: View {
                     }.padding(11).notchestPanel(cornerRadius: 13)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(app.text("\(dev.usage.fileCount) سجلّات • تحديث كل 30 ثانية", "\(dev.usage.fileCount) logs • refreshes every 30 seconds"))
+                            Label(app.text("تلقائي · كل 5 ثوانٍ", "Auto · every 5 seconds"), systemImage: "arrow.triangle.2.circlepath")
                             Spacer()
-                            if let observed = dev.usage.observedAt {
-                                Text(app.text("لقطة الحدود: ", "Limits snapshot: ")) + Text(observed, style: .relative)
+                            if let scanned = dev.usage.scannedAt {
+                                Text(app.text("آخر قراءة: ", "Last checked: ")) + Text(scanned, style: .relative)
                             }
                         }
+                        if let event = dev.usage.lastEventAt {
+                            Text(app.text("آخر نشاط مسجّل: ", "Last recorded activity: ")) + Text(event, style: .relative)
+                        }
                         Text(app.text("الرموز المحلية ليست فاتورة أو رصيد اشتراك. لا نستخرج نصوص المحادثات أو مفاتيح الدخول.", "Local tokens are not a bill or subscription balance. Conversation text and credentials are not extracted."))
-                        if dev.usage.partial || dev.usage.unreadableFiles > 0 {
+                        if dev.localReadFailed {
+                            Text(app.text("تعذّرت قراءة بعض السجلات؛ نعرض آخر بيانات متاحة ونعيد المحاولة تلقائياً. تحقّق من المجلّد وصلاحيات القراءة.", "Some logs could not be read. Showing available data and retrying automatically. Check the folder and read permissions.")).foregroundStyle(.orange)
+                        } else if dev.usage.partial || dev.usage.unreadableFiles > 0 {
                             Text(app.text("القراءة جزئية؛ بعض السجلّات كبيرة أو غير قابلة للقراءة.", "Partial scan: some logs were too large or unreadable.")).foregroundStyle(.orange)
                         }
                     }.font(.system(size: 9)).foregroundStyle(.white.opacity(0.55)).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
+        .onAppear { dev.refreshAutomatically() }
+    }
+
+    private func usageSummaryStatus(_ snapshot: UsageSnapshot?) -> String {
+        guard dev.trackingEnabled else { return app.text("القراءة متوقفة", "Tracking paused") }
+        guard let snapshot else { return app.text("بانتظار القراءة", "Waiting for scan") }
+        if snapshot.missingDirectory { return app.text("اختر مجلّد السجلات", "Choose log folder") }
+        if snapshot.fileCount == 0 {
+            if snapshot.unreadableFiles > 0 { return app.text("تعذّرت قراءة السجلات", "Could not read logs") }
+            if snapshot.partial { return app.text("تجاوزت حدود القراءة", "Reading limits exceeded") }
+            return app.text("لا توجد سجلات استخدام", "No usage logs yet")
+        }
+        return app.text("\(short(snapshot.today.total)) رموز اليوم", "\(short(snapshot.today.total)) tokens today")
     }
 
     /// Live account limits come from the Codex CLI connection and must stay
@@ -128,20 +152,33 @@ struct DeveloperView: View {
             HStack {
                 Text(app.text("حدود الحساب الحيّة", "Live account limits")).font(.system(size: 10, weight: .semibold)).foregroundStyle(notchestAccent)
                 Spacer()
-                if let live = dev.liveCodex {
-                    (Text(app.text("حدود حيّة ", "Live ")) + Text(live.fetchedAt, style: .relative)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.55))
-                }
+                if dev.liveCodexLoading { ProgressView().controlSize(.mini) }
+                Toggle(app.text("تحديث تلقائي كل دقيقة", "Auto-refresh every minute"), isOn: $dev.liveAutoRefreshEnabled)
+                    .toggleStyle(.switch).controlSize(.mini).tint(notchestAccent).font(.system(size: 9))
             }
-            if let error = dev.liveCodexError { Text(error).font(.system(size: 10)).foregroundStyle(.orange) }
+            if let error = dev.liveCodexError {
+                Text(error).font(.system(size: 10)).foregroundStyle(.orange)
+                if dev.liveAutoRefreshEnabled { Text(app.text("سنعيد المحاولة تلقائياً؛ يمكنك أيضاً ضغط تحديث.", "Retrying automatically. You can also press Refresh.")).font(.system(size: 9)).foregroundStyle(.white.opacity(0.55)) }
+            }
             if let live = dev.liveCodex {
                 VStack(alignment: .leading, spacing: 11) {
-                    if let primary = live.primary { window(primary) }
-                    if let secondary = live.secondary { window(secondary) }
+                    let stale = app.now.timeIntervalSince(live.fetchedAt) > 120 || dev.liveCodexError != nil || !dev.liveAutoRefreshEnabled
+                    HStack {
+                        Text(stale ? app.text("آخر بيانات متاحة", "Last available data") : app.text("متصل · تحديث تلقائي", "Connected · auto-refresh"))
+                            .foregroundStyle(stale ? .orange : notchestAccent)
+                        Spacer()
+                        Text(app.text("آخر اتصال: ", "Last fetched: ")) + Text(live.fetchedAt, style: .relative)
+                    }.font(.system(size: 9)).foregroundStyle(.white.opacity(0.55))
+                    if let primary = live.primary { window(primary, stale: stale) }
+                    if let secondary = live.secondary { window(secondary, stale: stale) }
                     if let lifetime = live.lifetimeTokens {
                         Text(app.text("إجمالي رموز الحساب المسجّل: \(short(lifetime))", "Account lifetime tokens: \(short(lifetime))"))
                             .font(.system(size: 9)).foregroundStyle(.white.opacity(0.55))
                     }
                 }
+            } else if !dev.liveCodexLoading && dev.liveCodexError == nil {
+                Text(app.text("فعّل التحديث التلقائي لقراءة حدود حسابك عبر Codex CLI المسجّل دخوله. يعمل بشكل مستقل عن السجلات المحلية.", "Enable auto-refresh to read account limits through your signed-in Codex CLI, independently of local logs."))
+                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
             }
         }.padding(11).notchestPanel(cornerRadius: 13)
     }
@@ -155,12 +192,12 @@ struct DeveloperView: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(11).notchestPanel(cornerRadius: 13)
     }
 
-    private func window(_ window: UsageWindow) -> some View {
+    private func window(_ window: UsageWindow, stale: Bool = false) -> some View {
         let remaining = max(0, 100 - window.usedPercent)
-        let expired = window.resetsAt.map { $0 < Date() } ?? false
+        let expired = stale || (window.resetsAt.map { $0 <= app.now } ?? false)
         return VStack(spacing: 6) {
             HStack {
-                Text(window.minutes >= 1440 ? app.text("نافذة \(window.minutes / 1440) أيام", "\(window.minutes / 1440)-day window") : app.text("نافذة \(window.minutes / 60) ساعات", "\(window.minutes / 60)-hour window"))
+                Text(window.minutes >= 1440 ? app.text("نافذة \(window.minutes / 1440) أيام", "\(window.minutes / 1440)-day window") : window.minutes >= 60 && window.minutes % 60 == 0 ? app.text("نافذة \(window.minutes / 60) ساعات", "\(window.minutes / 60)-hour window") : app.text("نافذة \(window.minutes) دقيقة", "\(window.minutes)-minute window"))
                 Spacer()
                 Text(expired ? app.text("لقطة قديمة", "Stale snapshot") : app.text("\(Int(remaining))% متبقٍ", "\(Int(remaining))% remaining")).foregroundStyle(expired ? .orange : notchestAccent)
             }.font(.system(size: 10))

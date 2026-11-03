@@ -1,8 +1,41 @@
 import Foundation
 
+private final class UsageCheckService: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scans = 0
+    private var lives = 0
+    private var scanFailure = false
+    private var liveFailure = false
+    var scanCount: Int { lock.withLock { scans } }
+    var liveCount: Int { lock.withLock { lives } }
+    var failScan: Bool {
+        get { lock.withLock { scanFailure } }
+        set { lock.withLock { scanFailure = newValue } }
+    }
+    var failLive: Bool {
+        get { lock.withLock { liveFailure } }
+        set { lock.withLock { liveFailure = newValue } }
+    }
+    func scan(_ provider: AIProvider, directory: URL) -> UsageSnapshot {
+        let (number, failure) = lock.withLock { scans += 1; return (scans, scanFailure) }
+        // Keep the first result in flight while the test switches providers.
+        if number == 1 { Thread.sleep(forTimeInterval: 0.15) }
+        var snapshot = UsageSnapshot()
+        if failure { snapshot.unreadableFiles = 1; return snapshot }
+        snapshot.fileCount = 1; snapshot.scannedAt = Date()
+        snapshot.today.input = directory.path == "/fixture-new" ? 333 : provider == .codex ? 111 : 222
+        return snapshot
+    }
+    func live() throws -> CodexLiveSnapshot {
+        let failure = lock.withLock { lives += 1; return liveFailure }
+        if failure { throw CodexLiveError.timeout }
+        return CodexLiveSnapshot(primary: UsageWindow(usedPercent: 25, minutes: 300, resetsAt: nil), secondary: nil, lifetimeTokens: nil, fetchedAt: Date())
+    }
+}
+
 @main
 struct RunChecks {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         var count = 0
         func check(_ name: String, _ body: () throws -> Void) rethrows {
             try body()
@@ -12,6 +45,109 @@ struct RunChecks {
         func expect(_ condition: @autoclosure () throws -> Bool) throws {
             let value = try condition()
             precondition(value)
+        }
+        func waitFor(_ condition: @MainActor () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(3)
+            while !condition() {
+                guard Date() < deadline else { throw CocoaError(.executableRuntimeMismatch) }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        check("Workspace presets keep a visible card and constrain background opacity") {
+            var prefs = WorkspacePreferences()
+            prefs.cards = [.usage, .usage, .focus]
+            precondition(prefs.validated().cards == [.usage, .focus])
+            prefs.cards = [.focus]; prefs.setVisible(.focus, false)
+            precondition(prefs.cards == [.focus])
+            prefs.setVisible(.notes, true); prefs.move(.notes, by: -1)
+            precondition(prefs.cards == [.notes, .focus])
+            prefs.backgroundOpacity = .nan
+            precondition(prefs.validated().backgroundOpacity == 0.62)
+            prefs.backgroundOpacity = 9
+            precondition(prefs.validated().backgroundOpacity == 0.75)
+        }
+        check("Setup completion and workspace changes survive relaunch without resetting dimensions") {
+            let suite = "dev.notchest.workspace.\(UUID())"
+            let store = UserDefaults(suiteName: suite)!
+            defer { store.removePersistentDomain(forName: suite) }
+            let first = AppModel(defaults: store, startServices: false)
+            precondition(!first.setupCompleted)
+            first.workspace.cards = WorkspacePreset.focus.cards
+            first.workspace.backgroundOpacity = 0.35
+            first.islandPreferences.expandedWidth = 900
+            first.finishSetup()
+            let restored = AppModel(defaults: store, startServices: false)
+            precondition(restored.setupCompleted && restored.workspace.cards == WorkspacePreset.focus.cards)
+            precondition(restored.workspace.backgroundOpacity == 0.35 && restored.islandPreferences.expandedWidth == 900)
+            first.shutdown(); restored.shutdown()
+        }
+        try check("Release checks compare numeric versions and reject untrusted or preview release pages") {
+            precondition(ReleaseVersion("v0.10.0")! > ReleaseVersion("0.9.9")!)
+            precondition(ReleaseVersion("0.7.0-beta") == nil && ReleaseVersion("0.7") == nil)
+            func data(_ page: String, preview: Bool = false) throws -> Data {
+                try JSONSerialization.data(withJSONObject: ["tag_name": "v0.7.0", "html_url": page, "draft": false, "prerelease": preview])
+            }
+            let valid = try AvailableRelease.parse(data("https://github.com/H0777/Notchest/releases/tag/v0.7.0"))
+            precondition(valid.version == "0.7.0")
+            for page in ["https://github.com.evil.example/H0777/Notchest/releases/tag/v0.7.0", "https://github.com/another/repo/releases/tag/v0.7.0"] {
+                do { _ = try AvailableRelease.parse(data(page)); preconditionFailure("Untrusted release accepted") } catch {}
+            }
+            do { _ = try AvailableRelease.parse(data("https://github.com/H0777/Notchest/releases/tag/v0.7.0", preview: true)); preconditionFailure("Preview accepted as stable") } catch {}
+        }
+        try check("Agent hooks expose metadata only and never return an approval decision") {
+            let input: [String: Any] = ["hook_event_name": "PermissionRequest", "session_id": "private-session", "cwd": "/tmp/Example", "prompt": "private-prompt", "tool_input": ["command": "private-command"], "last_assistant_message": "private-answer"]
+            let payload = HookPayload.make(input, provider: "codex")!
+            precondition(payload["state"] as? String == "waiting" && payload["project"] as? String == "Example")
+            let text = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+            precondition(!text.contains("private-") && !text.contains("decision") && !text.contains("/tmp"))
+            precondition(HookPayload.make(input, provider: "unsupported") == nil)
+            var stopped = input; stopped["hook_event_name"] = "Stop"
+            precondition(HookPayload.make(stopped, provider: "claude")?["state"] as? String == "success")
+        }
+        try check("Hook installation preserves user settings, backs up privately, removes only its own hooks") {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-hooks-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let file = folder.appendingPathComponent("settings.json")
+            let original = Data("{\"theme\":\"dark\",\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"other-hook\"}]}]}}".utf8)
+            try PrivateFile.write(original, to: file)
+            let helper = URL(fileURLWithPath: "/Applications/Preview's.app/Contents/MacOS/NotchestCommand")
+            let backup = try HookInstaller.install(.claude, helper: helper, configuration: file)!
+            try expect(try Data(contentsOf: backup) == original)
+            let installed = try Data(contentsOf: file)
+            let root = try JSONSerialization.jsonObject(with: installed) as! [String: Any]
+            precondition(root["theme"] as? String == "dark")
+            precondition(String(decoding: installed, as: UTF8.self).contains("other-hook"))
+            try expect(try HookInstaller.install(.claude, helper: helper, configuration: file) == nil)
+            let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as! NSNumber
+            precondition(mode.intValue & 0o077 == 0)
+            try HookInstaller.install(.claude, helper: helper, configuration: file, remove: true)
+            let removed = String(decoding: try Data(contentsOf: file), as: UTF8.self)
+            precondition(removed.contains("other-hook") && !removed.contains("--activity-hook"))
+            let invalid = Data("invalid settings".utf8)
+            try PrivateFile.write(invalid, to: file)
+            do { try HookInstaller.install(.codex, helper: helper, configuration: file); preconditionFailure("Invalid settings overwritten") } catch {}
+            try expect(try Data(contentsOf: file) == invalid)
+        }
+        check("Usage alerts fire once per threshold and reset window, and ignore expired snapshots") {
+            var policy = UsageAlertPolicy()
+            let now = Date(), reset = Date().addingTimeInterval(3600)
+            func window(_ percent: Double, _ reset: Date) -> UsageWindow { UsageWindow(usedPercent: percent, minutes: 300, resetsAt: reset) }
+            precondition(policy.evaluate([window(79, reset)], at: now).isEmpty)
+            precondition(policy.evaluate([window(82, reset)], at: now).count == 1)
+            precondition(policy.evaluate([window(84, reset)], at: now).isEmpty)
+            precondition(policy.evaluate([window(96, reset)], at: now).count == 1)
+            precondition(policy.evaluate([window(99, reset)], at: now).isEmpty)
+            precondition(policy.evaluate([window(99, now.addingTimeInterval(-1))], at: now).isEmpty)
+            precondition(policy.evaluate([window(99, reset.addingTimeInterval(3600))], at: now).count == 1)
+        }
+        try check("Project workflow parsing handles unfinished results and excludes unsafe links") {
+            let base: [String: Any] = ["databaseId": 123, "name": "Build", "displayTitle": "Check change", "status": "in_progress", "conclusion": NSNull(), "headBranch": "main", "url": "https://github.com/H0777/Notchest/actions/runs/123"]
+            let runs = try ProjectRun.parse(JSONSerialization.data(withJSONObject: [base]))
+            precondition(runs.count == 1 && runs[0].activityState == "running")
+            var done = base; done["status"] = "completed"; done["conclusion"] = "failure"
+            try expect(try ProjectRun.parse(JSONSerialization.data(withJSONObject: [done]))[0].activityState == "failure")
+            done["url"] = "javascript:alert(1)"
+            try expect(try ProjectRun.parse(JSONSerialization.data(withJSONObject: [done])).isEmpty)
         }
         let start = Date(timeIntervalSince1970: 1_000)
         check("Timer uses elapsed wall time, including missed ticks") {
@@ -122,6 +258,153 @@ struct RunChecks {
             precondition(snapshot.today == TokenTally(input: 11, cached: 10, output: 5))
             precondition(snapshot.eventCount == 1 && snapshot.primary == nil)
         }
+        try check("Growing logs read only appended bytes and retry an incomplete final record") {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-append-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("active.jsonl")
+            let now = Date()
+            func row(_ tokens: Int) throws -> Data {
+                try JSONSerialization.data(withJSONObject: ["timestamp": ISO8601DateFormatter().string(from: now), "type": "event_msg", "payload": ["type": "token_count", "info": ["total_token_usage": ["input_tokens": tokens, "output_tokens": 10]]]])
+            }
+            try (Data((String(repeating: " ", count: 10_000) + "\n").utf8) + row(100) + Data([10])).write(to: file)
+            let first = UsageReader.scan(provider: .codex, directory: root, now: now)
+            precondition(first.today.total == 110 && first.bytesRead > 10_000)
+            precondition(UsageReader.scan(provider: .codex, directory: root, now: now).bytesRead == 0)
+            let next = try row(180)
+            let split = next.count / 2
+            let writer = try FileHandle(forWritingTo: file)
+            defer { try? writer.close() }
+            try writer.seekToEnd()
+            try writer.write(contentsOf: next.prefix(split))
+            let partial = UsageReader.scan(provider: .codex, directory: root, now: now)
+            precondition(partial.today.total == 110 && partial.bytesRead == split)
+            try writer.write(contentsOf: next.suffix(from: split) + Data([10]))
+            let complete = UsageReader.scan(provider: .codex, directory: root, now: now)
+            precondition(complete.today.total == 190 && complete.eventCount == 2)
+            precondition(complete.bytesRead == next.count + 1 && complete.lastEventAt != nil)
+        }
+        try check("Truncated and atomically replaced logs rebuild their token baseline") {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-replace-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("active.jsonl")
+            let now = Date()
+            func data(_ input: Int) throws -> Data {
+                try JSONSerialization.data(withJSONObject: ["timestamp": ISO8601DateFormatter().string(from: now), "type": "assistant", "message": ["id": "message", "usage": ["input_tokens": input]]])
+            }
+            try data(9999).write(to: file)
+            precondition(UsageReader.scan(provider: .claude, directory: root, now: now).today.total == 9999)
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.truncate(atOffset: 0); try handle.write(contentsOf: data(1)); try handle.close()
+            precondition(UsageReader.scan(provider: .claude, directory: root, now: now).today.total == 1)
+            try data(22222).write(to: file, options: .atomic)
+            precondition(UsageReader.scan(provider: .claude, directory: root, now: now).today.total == 22222)
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now)!
+            let rolled = UsageReader.scan(provider: .claude, directory: root, now: tomorrow)
+            precondition(rolled.today.total == 0 && rolled.week.total == 22222)
+        }
+        try check("Oversized transcript records stay bounded and do not hide later usage") {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("notchest-large-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("large.jsonl")
+            let now = Date()
+            try Data(repeating: 32, count: 8 * 1024 * 1024 + 1).write(to: file)
+            let initial = UsageReader.scan(provider: .claude, directory: root, now: now)
+            precondition(initial.partial && initial.today.total == 0)
+            let writer = try FileHandle(forWritingTo: file)
+            try writer.seekToEnd()
+            let record = try JSONSerialization.data(withJSONObject: ["timestamp": ISO8601DateFormatter().string(from: now), "type": "assistant", "message": ["id": "message", "usage": ["input_tokens": 12]]])
+            try writer.write(contentsOf: Data([10]) + record + Data([10])); try writer.close()
+            let recovered = UsageReader.scan(provider: .claude, directory: root, now: now)
+            precondition(recovered.partial && recovered.today.total == 12 && recovered.bytesRead == record.count + 2)
+        }
+        check("Live refresh retries back off and success restores the one-minute cadence") {
+            var schedule = UsageRefreshSchedule()
+            let now = Date()
+            for delay in [30.0, 60, 120, 240, 300, 300] {
+                schedule.failed(at: now)
+                precondition(schedule.nextAttempt.timeIntervalSince(now) == delay)
+            }
+            schedule.succeeded(at: now)
+            precondition(schedule.failures == 0 && schedule.nextAttempt.timeIntervalSince(now) == 60)
+        }
+        check("The compact island uses fresh live limits and hides expired or stale percentages") {
+            let suite = "dev.notchest.compact-usage.\(UUID())"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(true, forKey: "aiLiveAutoRefresh")
+            let model = DeveloperModel(defaults: defaults)
+            let now = Date()
+            model.usage.primary = UsageWindow(usedPercent: 90, minutes: 300, resetsAt: now.addingTimeInterval(500))
+            model.usage.observedAt = now
+            model.liveCodex = CodexLiveSnapshot(primary: UsageWindow(usedPercent: 25, minutes: 300, resetsAt: now.addingTimeInterval(500)), secondary: nil, lifetimeTokens: nil, fetchedAt: now)
+            precondition(model.compactUsageWindow(at: now)?.usedPercent == 25)
+            precondition(model.compactUsageWindow(at: now.addingTimeInterval(121)) == nil)
+            model.liveAutoRefreshEnabled = false
+            precondition(model.compactUsageWindow(at: now)?.usedPercent == 90)
+            precondition(model.compactUsageWindow(at: now.addingTimeInterval(501)) == nil)
+            model.stop()
+        }
+        do {
+            let suite = "dev.notchest.usage-race.\(UUID())"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let service = UsageCheckService()
+            let model = DeveloperModel(defaults: defaults, scanUsage: { service.scan($0, directory: $1) }, fetchLive: { try service.live() })
+            defer { model.stop() }
+            model.refreshUsage()
+            try await waitFor { service.scanCount > 0 }
+            model.changeProvider(.claude)
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 222)
+            try await Task.sleep(nanoseconds: 200_000_000)
+            precondition(model.usage.today.total == 222)
+            model.setUsageDirectory(URL(fileURLWithPath: "/fixture-new"))
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 333)
+            model.refreshUsage(); model.trackingEnabled = false; model.trackingEnabled = true
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 333)
+            service.failScan = true
+            model.refreshUsage()
+            try await waitFor { !model.refreshing }
+            precondition(model.usage.today.total == 333 && model.localReadFailed)
+            model.changeProvider(.codex)
+            model.trackingEnabled = false
+            precondition(service.liveCount == 0 && !model.liveAutoRefreshEnabled)
+            model.liveAutoRefreshEnabled = true
+            try await waitFor { !model.liveCodexLoading }
+            precondition(model.liveCodex?.primary?.usedPercent == 25 && service.liveCount == 1)
+            model.refreshAutomatically()
+            precondition(!model.liveCodexLoading && service.liveCount == 1)
+            service.failLive = true
+            model.refreshAutomatically(at: Date().addingTimeInterval(61))
+            try await waitFor { !model.liveCodexLoading }
+            precondition(model.liveCodex?.primary?.usedPercent == 25 && model.liveCodexError != nil)
+            service.failLive = false
+            model.refreshAllUsage()
+            try await waitFor { !model.liveCodexLoading }
+            precondition(model.liveCodexError == nil)
+            model.liveAutoRefreshEnabled = false
+            let liveCount = service.liveCount
+            model.refreshAutomatically(at: .distantFuture)
+            precondition(service.liveCount == liveCount)
+            count += 1; print("PASS: Provider/folder changes reject stale scans; live refresh is opt-in, scheduled, recoverable and independent")
+            let pending = DeveloperModel(defaults: defaults, scanUsage: { _, _ in UsageSnapshot() }, fetchLive: {
+                Thread.sleep(forTimeInterval: 0.15)
+                return try service.live()
+            })
+            pending.refreshLiveCodex()
+            pending.stop()
+            try await Task.sleep(nanoseconds: 200_000_000)
+            precondition(!pending.liveCodexLoading && pending.liveCodex == nil)
+            let restored = DeveloperModel(defaults: defaults)
+            precondition(!restored.liveAutoRefreshEnabled && !restored.trackingEnabled)
+            restored.stop()
+            count += 1; print("PASS: Stopping rejects in-flight live results and tracking preferences survive relaunch")
+        }
         check("Missing limits stay unknown rather than reporting zero") {
             precondition(UsageReader.parseWindow(NSNull()) == nil)
             precondition(UsageReader.parseWindow(["window_minutes": 300]) == nil)
@@ -197,7 +480,7 @@ struct RunChecks {
             preferences.compactWidth = 200
             preferences.compactHeight = 34
             let frame = display.windowFrame(preferences: preferences, expanded: false)
-            precondition(frame.width >= 263 && frame.height >= 35)
+            precondition(frame.width >= display.notchWidth + 120 && frame.height >= 35)
             precondition(frame.midX == display.frame.midX && frame.maxY == display.frame.maxY)
         }
         check("Island dimensions fit small and external displays") {

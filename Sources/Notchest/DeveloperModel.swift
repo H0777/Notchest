@@ -38,18 +38,53 @@ struct PullResult {
     var error: String?
 }
 
+struct UsageRefreshSchedule {
+    static let localInterval: TimeInterval = 5
+    static let liveInterval: TimeInterval = 60
+    private(set) var failures = 0
+    private(set) var nextAttempt = Date.distantPast
+
+    mutating func succeeded(at date: Date) {
+        failures = 0
+        nextAttempt = date.addingTimeInterval(Self.liveInterval)
+    }
+
+    mutating func failed(at date: Date) {
+        failures = min(failures + 1, 5)
+        nextAttempt = date.addingTimeInterval(min(300, 30 * pow(2, Double(failures - 1))))
+    }
+}
+
 @MainActor
 final class DeveloperModel: ObservableObject {
     var onCommandFinished: ((Int32) -> Void)?
+    var onUsageAlert: ((UsageLimitAlert) -> Void)?
     @Published var section: DeveloperSection = .usage
     @Published var provider: AIProvider = .codex
     @Published var usage = UsageSnapshot()
+    @Published private(set) var usageByProvider: [AIProvider: UsageSnapshot] = [:]
+    @Published var usageAlertsEnabled: Bool {
+        didSet { defaults.set(usageAlertsEnabled, forKey: "usageAlertsEnabled") }
+    }
+    private var alertPolicy = UsageAlertPolicy()
     @Published var refreshing = false
     @Published var liveCodex: CodexLiveSnapshot?
     @Published var liveCodexLoading = false
-    @Published var liveCodexError: String?
-    @Published var trackingEnabled = UserDefaults.standard.object(forKey: "aiTracking") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(trackingEnabled, forKey: "aiTracking"); if trackingEnabled { refreshUsage() } else { usage = UsageSnapshot() } }
+    @Published private var liveError: ServiceText?
+    var liveCodexError: String? { liveError?.resolved(arabicUI: arabicUI) }
+    @Published var localReadFailed = false
+    @Published var liveAutoRefreshEnabled: Bool {
+        didSet {
+            defaults.set(liveAutoRefreshEnabled, forKey: "aiLiveAutoRefresh")
+            if liveAutoRefreshEnabled { refreshLiveCodex() } else { cancelLiveRefresh() }
+        }
+    }
+    @Published var trackingEnabled: Bool {
+        didSet {
+            defaults.set(trackingEnabled, forKey: "aiTracking")
+            if trackingEnabled { refreshUsage() }
+            else { cancelUsageRefresh(); usage = UsageSnapshot(); usageByProvider = [:]; localReadFailed = false }
+        }
     }
     @Published var workbenchInput = ""
     @Published var workbenchOutput = ""
@@ -58,7 +93,9 @@ final class DeveloperModel: ObservableObject {
     @Published var commandOutput = ""
     @Published var commandRunning = false
     @Published var commandExit: Int32?
-    @Published var workingDirectory = FileManager.default.homeDirectoryForCurrentUser
+    @Published var workingDirectory = FileManager.default.homeDirectoryForCurrentUser {
+        didSet { defaults.set(workingDirectory.path, forKey: "workingDirectory") }
+    }
     @Published var gitOutput = ""
     @Published var gitBusy = false
     @Published var showingPulls = false
@@ -73,27 +110,114 @@ final class DeveloperModel: ObservableObject {
     private var timer: Timer?
     private var usageTask: Task<Void, Never>?
     private var usageGeneration = UUID()
+    private var liveTask: Task<Void, Never>?
+    private var liveGeneration = UUID()
+    private var liveSchedule = UsageRefreshSchedule()
+    private var wakeObserver: NSObjectProtocol?
+    private var activeObserver: NSObjectProtocol?
+    private let defaults: UserDefaults
+    private let scanUsage: @Sendable (AIProvider, URL) -> UsageSnapshot
+    private let fetchLive: @Sendable () throws -> CodexLiveSnapshot
 
-    init() {
-        snippets = UserDefaults.standard.data(forKey: "snippets").flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
+    init(defaults: UserDefaults = .standard,
+         scanUsage: @escaping @Sendable (AIProvider, URL) -> UsageSnapshot = { UsageReader.scan(provider: $0, directory: $1) },
+         fetchLive: @escaping @Sendable () throws -> CodexLiveSnapshot = { try CodexLiveReader.fetch() }) {
+        self.defaults = defaults
+        self.scanUsage = scanUsage
+        self.fetchLive = fetchLive
+        usageAlertsEnabled = defaults.bool(forKey: "usageAlertsEnabled")
+        trackingEnabled = defaults.object(forKey: "aiTracking") as? Bool ?? true
+        liveAutoRefreshEnabled = defaults.bool(forKey: "aiLiveAutoRefresh")
+        workingDirectory = defaults.string(forKey: "workingDirectory").map { URL(fileURLWithPath: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
+        snippets = defaults.data(forKey: "snippets").flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
     }
 
     var usageDirectory: URL {
-        if let path = UserDefaults.standard.string(forKey: "usageDirectory.\(provider.rawValue)") { return URL(fileURLWithPath: path) }
+        directory(for: provider)
+    }
+    func directory(for provider: AIProvider) -> URL {
+        if let path = defaults.string(forKey: "usageDirectory.\(provider.rawValue)") { return URL(fileURLWithPath: path) }
         return provider.defaultDirectory
     }
 
+    func compactUsageWindow(at date: Date) -> UsageWindow? {
+        guard provider == .codex else { return nil }
+        let window: UsageWindow?
+        if liveAutoRefreshEnabled {
+            guard liveCodexError == nil, let liveCodex, date.timeIntervalSince(liveCodex.fetchedAt) <= 120 else { return nil }
+            window = liveCodex.primary
+        } else {
+            guard trackingEnabled, !localReadFailed, let observed = usage.observedAt, date.timeIntervalSince(observed) <= 120 else { return nil }
+            window = usage.primary
+        }
+        guard let window, (window.resetsAt ?? .distantFuture) > date else { return nil }
+        return window
+    }
+
     func start() {
-        refreshUsage()
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshUsage() }
+        guard timer == nil else { return }
+        refreshAutomatically()
+        let timer = Timer(timeInterval: UsageRefreshSchedule.localInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.timer != nil else { return }
+                self.refreshAutomatically()
+            }
+        }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.timer != nil else { return }
+                self.resumeUsageUpdates()
+            }
+        }
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.timer != nil else { return }
+                self.refreshAutomatically()
+            }
         }
     }
 
     func stop() {
         timer?.invalidate()
-        usageTask?.cancel()
+        timer = nil
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+        wakeObserver = nil; activeObserver = nil
+        cancelUsageRefresh()
+        cancelLiveRefresh()
         cancelCommand()
+    }
+
+    func refreshAutomatically(at date: Date = Date()) {
+        refreshUsage()
+        if liveAutoRefreshEnabled, date >= liveSchedule.nextAttempt { refreshLiveCodex() }
+    }
+
+    func resumeUsageUpdates() {
+        // A request begun before sleep may have a dead pipe or stale filesystem view.
+        cancelUsageRefresh()
+        cancelLiveRefresh()
+        refreshAutomatically()
+    }
+
+    func refreshAllUsage() {
+        refreshUsage()
+        if liveAutoRefreshEnabled { refreshLiveCodex() }
+    }
+
+    private func cancelUsageRefresh() {
+        usageGeneration = UUID()
+        usageTask?.cancel(); usageTask = nil
+        refreshing = false
+    }
+
+    private func cancelLiveRefresh() {
+        liveGeneration = UUID()
+        liveTask?.cancel(); liveTask = nil
+        liveCodexLoading = false
     }
 
     func refreshUsage() {
@@ -103,34 +227,65 @@ final class DeveloperModel: ObservableObject {
         usageGeneration = generation
         let provider = provider
         let directory = usageDirectory
+        let directories = Dictionary(uniqueKeysWithValues: AIProvider.allCases.map { ($0, self.directory(for: $0)) })
+        let scan = scanUsage
         usageTask = Task { [weak self] in
-            let snapshot = await Task.detached(priority: .utility) { UsageReader.scan(provider: provider, directory: directory) }.value
+            let worker = Task.detached(priority: .utility) {
+                var result: [AIProvider: UsageSnapshot] = [:]
+                for item in AIProvider.allCases {
+                    guard !Task.isCancelled else { break }
+                    result[item] = scan(item, directories[item]!)
+                }
+                return result
+            }
+            let snapshots = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
             guard let self else { return }
             guard self.usageGeneration == generation else { return }
             defer { self.refreshing = false }
-            guard !Task.isCancelled, self.provider == provider, self.trackingEnabled else { return }
+            guard !Task.isCancelled, self.provider == provider, self.usageDirectory == directory, self.trackingEnabled else { return }
+            for (item, snapshot) in snapshots {
+                let failed = snapshot.missingDirectory || snapshot.unreadableFiles > 0 || (snapshot.partial && snapshot.fileCount == 0)
+                if failed, snapshot.fileCount == 0, (self.usageByProvider[item]?.fileCount ?? 0) > 0 { continue }
+                self.usageByProvider[item] = snapshot
+            }
+            guard let snapshot = snapshots[provider] else { return }
+            self.localReadFailed = snapshot.missingDirectory || snapshot.unreadableFiles > 0 || (snapshot.partial && snapshot.fileCount == 0)
+            if self.localReadFailed, snapshot.fileCount == 0, self.usage.fileCount > 0 { return }
             self.usage = snapshot
+            if self.usageAlertsEnabled, !self.liveAutoRefreshEnabled, provider == .codex {
+                self.alertPolicy.evaluate([snapshot.primary, snapshot.secondary].compactMap { $0 }).forEach { self.onUsageAlert?($0) }
+            }
         }
     }
 
     func changeProvider(_ provider: AIProvider) {
-        usageTask?.cancel()
-        refreshing = false
+        guard provider != self.provider else { refreshAllUsage(); return }
+        cancelUsageRefresh()
         self.provider = provider
-        usage = UsageSnapshot()
-        refreshUsage()
+        usage = usageByProvider[provider] ?? UsageSnapshot()
+        localReadFailed = false
+        refreshAutomatically()
     }
 
     func refreshLiveCodex() {
         guard !liveCodexLoading else { return }
-        liveCodexLoading = true; liveCodexError = nil
-        Task { [weak self] in
-            let result = await Task.detached(priority: .utility) { Result { try CodexLiveReader.fetch() } }.value
-            guard let self else { return }
+        liveCodexLoading = true
+        let generation = UUID()
+        liveGeneration = generation
+        let fetch = fetchLive
+        liveTask = Task { [weak self] in
+            let worker = Task.detached(priority: .utility) { Result { try fetch() } }
+            let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            guard let self, !Task.isCancelled, self.liveGeneration == generation else { return }
             self.liveCodexLoading = false
             switch result {
-            case .success(let snapshot): self.liveCodex = snapshot
-            case .failure(let error): self.liveCodexError = (error as? CodexLiveError)?.message(arabicUI: self.arabicUI) ?? error.localizedDescription
+            case .success(let snapshot):
+                self.liveCodex = snapshot; self.liveError = nil
+                self.liveSchedule.succeeded(at: Date())
+                if self.usageAlertsEnabled { self.alertPolicy.evaluate([snapshot.primary, snapshot.secondary].compactMap { $0 }).forEach { self.onUsageAlert?($0) } }
+            case .failure(let error):
+                self.liveError = (error as? CodexLiveError)?.text ?? CodexLiveError.failed.text
+                self.liveSchedule.failed(at: Date())
             }
         }
     }
@@ -142,9 +297,16 @@ final class DeveloperModel: ObservableObject {
         panel.canChooseFiles = false
         panel.directoryURL = usageDirectory
         if panel.runModal() == .OK, let url = panel.url {
-            UserDefaults.standard.set(url.path, forKey: "usageDirectory.\(provider.rawValue)")
-            refreshUsage()
+            setUsageDirectory(url)
         }
+    }
+
+    func setUsageDirectory(_ url: URL) {
+        cancelUsageRefresh()
+        defaults.set(url.path, forKey: "usageDirectory.\(provider.rawValue)")
+        usageByProvider[provider] = nil
+        usage = UsageSnapshot(); localReadFailed = false
+        refreshUsage()
     }
 
     func transform(_ operation: String) {
@@ -373,5 +535,5 @@ final class DeveloperModel: ObservableObject {
     }
 
     func deleteSnippet(_ snippet: Snippet) { snippets.removeAll { $0.id == snippet.id }; saveSnippets() }
-    private func saveSnippets() { if let data = try? JSONEncoder().encode(snippets) { UserDefaults.standard.set(data, forKey: "snippets") } }
+    private func saveSnippets() { if let data = try? JSONEncoder().encode(snippets) { defaults.set(data, forKey: "snippets") } }
 }

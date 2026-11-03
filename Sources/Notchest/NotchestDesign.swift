@@ -57,7 +57,7 @@ enum NotchestPalette {
         Color(red: 0.72, green: 0.18, blue: 0.82)
     ]
     static let ink = Color(red: 0.045, green: 0.065, blue: 0.105)
-    static let secondary = Color.white.opacity(0.66)
+    static let secondary = Color.white.opacity(0.78)
 
     static func menuImage() -> NSImage {
         let image = NSImage(size: NSSize(width: 20, height: 20), flipped: false) { rect in
@@ -109,21 +109,35 @@ struct NotchestMark: View {
 }
 
 /// The material is a sibling below the SwiftUI host, keeping all content above AppKit's backdrop layer.
-final class NotchestWindowBackdrop: NSVisualEffectView {
+final class NotchestWindowBackdrop: NSView {
+    let contentContainer = NSView()
+    private var legacyBackdrop: NSVisualEffectView?
     var islandRadius: CGFloat = 30 { didSet { needsLayout = true } }
     override init(frame: NSRect) {
         super.init(frame: frame)
-        material = .hudWindow
-        blendingMode = .behindWindow
-        state = .active
         appearance = NSAppearance(named: .darkAqua)
         wantsLayer = true
         layer?.masksToBounds = true
-        let tint = NSView(frame: bounds)
-        tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor(calibratedRed: 0.035, green: 0.055, blue: 0.095, alpha: 0.48).cgColor
-        tint.autoresizingMask = [.width, .height]
-        addSubview(tint)
+        contentContainer.frame = bounds
+        contentContainer.autoresizingMask = [.width, .height]
+        if #available(macOS 26, *) {
+            let glass = NSGlassEffectView(frame: bounds)
+            glass.style = .clear
+            glass.cornerRadius = 0
+            glass.tintColor = NSColor(calibratedRed: 0.035, green: 0.055, blue: 0.095, alpha: 0.04)
+            glass.contentView = contentContainer
+            glass.autoresizingMask = [.width, .height]
+            addSubview(glass)
+        } else {
+            let visual = NSVisualEffectView(frame: bounds)
+            visual.material = .underWindowBackground
+            visual.blendingMode = .behindWindow
+            visual.state = .active
+            visual.autoresizingMask = [.width, .height]
+            visual.addSubview(contentContainer)
+            legacyBackdrop = visual
+            addSubview(visual)
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layout() {
@@ -135,7 +149,7 @@ final class NotchestWindowBackdrop: NSVisualEffectView {
         layer?.mask = mask
         // Clip the system backdrop itself as well as the content layer; otherwise blur can leak as a rectangular frame.
         if bounds.width > 0, bounds.height > 0 {
-            maskImage = NSImage(size: bounds.size, flipped: false) { _ in
+            legacyBackdrop?.maskImage = NSImage(size: bounds.size, flipped: false) { _ in
                 guard let context = NSGraphicsContext.current?.cgContext else { return false }
                 context.addPath(outline)
                 context.setFillColor(NSColor.black.cgColor)
@@ -148,23 +162,26 @@ final class NotchestWindowBackdrop: NSVisualEffectView {
 
 struct NotchestIslandSurface: View {
     let expanded: Bool
+    var opacity: Double = 0.62
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         ZStack {
-            if !expanded {
-                Color.black
-            } else if reduceTransparency || contrast == .increased {
+            if reduceTransparency || contrast == .increased {
                 NotchestPalette.ink
             } else {
-                NotchestPalette.ink.opacity(0.62)
+                // One glass family for both states: the slim collapsed bar shows
+                // the same transparency as the expanded island instead of a
+                // solid black block, with a stronger top scrim so the status
+                // text stays readable at the bar's height.
+                NotchestPalette.ink.opacity(expanded ? opacity : opacity * 0.8)
                 GeometryReader { geometry in
                     ZStack {
-                        RadialGradient(colors: [NotchestPalette.cyan.opacity(0.28), .clear], center: UnitPoint(x: 0, y: 0.15), startRadius: 0, endRadius: geometry.size.width * 0.7)
-                        RadialGradient(colors: [NotchestPalette.violet.opacity(0.35), .clear], center: UnitPoint(x: 1, y: 0.35), startRadius: 0, endRadius: geometry.size.width * 0.72)
-                        RadialGradient(colors: [NotchestPalette.rose.opacity(0.19), .clear], center: UnitPoint(x: 0.45, y: 1.1), startRadius: 0, endRadius: geometry.size.width * 0.6)
-                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.17))
+                        RadialGradient(colors: [NotchestPalette.cyan.opacity(0.18), .clear], center: UnitPoint(x: 0, y: 0.15), startRadius: 0, endRadius: geometry.size.width * 0.7)
+                        RadialGradient(colors: [NotchestPalette.violet.opacity(0.22), .clear], center: UnitPoint(x: 1, y: 0.35), startRadius: 0, endRadius: geometry.size.width * 0.72)
+                        RadialGradient(colors: [NotchestPalette.rose.opacity(0.10), .clear], center: UnitPoint(x: 0.45, y: 1.1), startRadius: 0, endRadius: geometry.size.width * 0.6)
+                        LinearGradient(colors: [.black.opacity(expanded ? 0.5 : 0.6), .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: expanded ? 0.17 : 0.55))
                     }
                 }
             }
@@ -179,7 +196,7 @@ private struct NotchestInsetSurface: View {
     @Environment(\.colorSchemeContrast) private var contrast
     var body: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(reduceTransparency ? NotchestPalette.ink : Color.white.opacity(0.045))
+            .fill(reduceTransparency ? NotchestPalette.ink : Color.black.opacity(0.14))
             .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(LinearGradient(colors: [(tint ?? .white).opacity(tint == nil ? 0.035 : 0.20), (tint ?? .white).opacity(tint == nil ? 0 : 0.035)], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -207,7 +224,7 @@ private struct NotchestGlassControl: ViewModifier {
             content.background(selected ? color.opacity(0.25) : Color(white: 0.15), in: shape)
                 .overlay(shape.strokeBorder(.white.opacity(contrast == .increased ? 0.5 : 0.16), lineWidth: 0.8))
         } else if #available(macOS 26, *) {
-            content.glassEffect(.regular.tint(selected ? color.opacity(0.26) : nil).interactive(!reduceMotion && motionEnabled), in: shape)
+            content.glassEffect(.regular.tint(selected ? color.opacity(0.16) : nil).interactive(!reduceMotion && motionEnabled), in: shape)
         } else {
             content.background(.ultraThinMaterial, in: shape)
                 .background(selected ? color.opacity(0.23) : .clear, in: shape)

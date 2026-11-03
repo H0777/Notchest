@@ -37,6 +37,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenu()
         setupHotKey()
         model.developer.start()
+        model.developer.onUsageAlert = { [weak self] alert in
+            guard let self else { return }
+            self.model.activity.record(id: alert.id, title: "Codex", message: self.model.text("استهلكت \(alert.percent)% من حد النافذة (\(alert.minutes) دقيقة)", "\(alert.percent)% of the \(alert.minutes)-minute limit is used"), kind: "usage")
+        }
+        model.updates.start()
+        model.project.onChanged = { [weak self] run in
+            self?.model.activity.record(id: "github-run-\(run.id)", title: run.name, message: run.headBranch, state: run.activityState, url: run.url, kind: "build")
+        }
+        model.developer.$workingDirectory.removeDuplicates().sink { [weak self] directory in self?.model.project.select(directory) }.store(in: &subscriptions)
+        model.project.start()
         model.activity.onRecord = { [weak self] item in self?.model.flashActivity(item) }
         model.monitor.onEvent = { [weak self] title, message, url, kind in
             self?.model.activity.record(title: title, message: message, url: url, kind: kind)
@@ -52,9 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.developer.onCommandFinished = { [weak self] code in
             guard let self else { return }
             self.model.showToast(self.model.text("انتهى الأمر • رمز الخروج \(code)", "Command finished • exit \(code)"))
-            self.model.developer.section = .command
-            self.model.select(.developer)
+            self.model.activity.record(id: "local-command", title: self.model.developer.workingDirectory.lastPathComponent, message: self.model.text("انتهى الأمر • رمز الخروج \(code)", "Command finished • exit \(code)"), state: code == 0 ? "success" : "failure", kind: "build")
         }
+        model.developer.$commandRunning.removeDuplicates().sink { [weak self] running in
+            guard let self, running else { return }
+            self.model.activity.record(id: "local-command", title: self.model.developer.workingDirectory.lastPathComponent, message: self.model.text("الأمر قيد التنفيذ", "Command is running"), state: "running", kind: "build")
+        }.store(in: &subscriptions)
         model.tools.notify = { [weak self] message in self?.model.showToast(message) }
         model.tools.collapse = { [weak self] in self?.model.expanded = false }
         model.tools.start()
@@ -94,7 +107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return event
         }
-        model.select(.developer)
+        model.select(.home)
+        if !model.setupCompleted { model.showingSetup = true }
         resizePanel(animate: false)
         panel.orderFrontRegardless()
     }
@@ -152,12 +166,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         host.layer?.isOpaque = false
         host.layer?.backgroundColor = NSColor.clear.cgColor
         host.translatesAutoresizingMaskIntoConstraints = false
-        background.addSubview(host)
+        background.contentContainer.addSubview(host)
         NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            host.topAnchor.constraint(equalTo: background.topAnchor),
-            host.bottomAnchor.constraint(equalTo: background.bottomAnchor)
+            host.leadingAnchor.constraint(equalTo: background.contentContainer.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: background.contentContainer.trailingAnchor),
+            host.topAnchor.constraint(equalTo: background.contentContainer.topAnchor),
+            host.bottomAnchor.constraint(equalTo: background.contentContainer.bottomAnchor)
         ])
         backdrop = background
         panel.contentView = background
@@ -195,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if !model.pinned {
             closeTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 850_000_000)
-                guard !Task.isCancelled, let self, !self.hovered, !self.model.pinned, NSApp.modalWindow == nil else { return }
+                guard !Task.isCancelled, let self, !self.hovered, !self.model.pinned, !self.model.showingSetup, NSApp.modalWindow == nil else { return }
                 // Never collapse while the user is entering a note or a clipboard query.
                 if self.panel.isKeyWindow && (self.model.tab == .notes || self.model.tab == .clipboard || self.model.tab == .settings) { return }
                 self.model.expanded = false
@@ -291,6 +305,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         model.shutdown()
+        model.setup.stop()
+        model.updates.stop()
+        model.project.stop()
         model.developer.stop()
         model.tools.stop()
         model.monitor.stop()

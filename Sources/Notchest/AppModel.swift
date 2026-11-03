@@ -65,12 +65,22 @@ struct ShelfItem: Identifiable, Codable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    let developer = DeveloperModel()
+    let developer: DeveloperModel
     let tools = NativeTools()
     let activity = ActivityCenter()
     let monitor = SystemMonitor()
     let weather = WeatherModel()
     let stocks = StocksModel()
+    let setup = SetupModel()
+    let updates = UpdateModel()
+    let project = ProjectMonitor()
+    @Published var showingSetup = false
+    @Published var setupCompleted: Bool {
+        didSet { defaults.set(setupCompleted, forKey: "setupCompleted.v1") }
+    }
+    @Published var workspace: WorkspacePreferences {
+        didSet { if let data = try? JSONEncoder().encode(workspace.validated()) { defaults.set(data, forKey: "workspace") } }
+    }
     let notifications = NotchestNotifications()
     @Published var activityFlash: NotchestActivity?
     @Published var display = IslandDisplay()
@@ -135,8 +145,11 @@ final class AppModel: ObservableObject {
     private var toastTask: Task<Void, Never>?
     private var activityFlashTask: Task<Void, Never>?
 
-    init(defaults: UserDefaults = .standard, startServices: Bool = true) {
+    init(defaults: UserDefaults = .standard, startServices: Bool = true, developer: DeveloperModel? = nil) {
         self.defaults = defaults
+        self.developer = developer ?? DeveloperModel(defaults: defaults)
+        setupCompleted = defaults.bool(forKey: "setupCompleted.v1")
+        workspace = (defaults.data(forKey: "workspace").flatMap { try? JSONDecoder().decode(WorkspacePreferences.self, from: $0) } ?? WorkspacePreferences()).validated()
         selectedDisplayID = defaults.string(forKey: "selectedDisplayID") ?? "auto"
         accentTheme = defaults.string(forKey: "accentTheme") ?? "aurora"
         launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -205,9 +218,16 @@ final class AppModel: ObservableObject {
     func resetStopwatch() { stopwatchStarted = nil; stopwatchElapsed = 0 }
 
     func select(_ tab: NotchestTab) {
+        showingSetup = false
         self.tab = tab
         paletteVisible = false
         expanded = true
+    }
+
+    func finishSetup() {
+        setupCompleted = true
+        showingSetup = false
+        select(.home)
     }
 
     func toggleTimer() {

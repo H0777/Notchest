@@ -3,18 +3,52 @@
 All notable changes to Notchest are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.7.0] — 2026-11-03
 
-### Added (toward 0.7)
+### Added
 
-- Opt-in system notifications via UNUserNotificationCenter for the app's own
-  events: focus-session completion, new files in Downloads, connected drives,
-  and stock alerts. The toggle lives in Settings; authorization is requested
-  only when enabled; wording follows the interface language through
-  ServiceText; island toasts and the activity feed work independently. Checks
-  grow from 36 to 37 (single-language wording plus toggle persistence). The
-  on-screen notification appears after the macOS notification permission is
-  granted on first enable.
+- Opt-in system notifications via UNUserNotificationCenter for the app's own events: focus completion, new files in Downloads, connected drives, and stock alerts. Opt-in from Settings; authorization is requested only when enabled; wording follows the interface language.
+- First-run connection checks and Developer/Focus/Everyday presets, with
+  persistent, reorderable home cards and a background-transparency control.
+- Native clear `NSGlassEffectView` on macOS 26+, preserving the notch outline
+  and providing a behind-window material fallback on older macOS versions.
+- Side-by-side local Codex/Claude summaries and optional 80%/95% usage alerts.
+- Opt-in native agent hooks for task states, with private configuration
+  backups and removal, metadata-only local delivery and no approval decisions.
+- Opt-in GitHub Actions tracking for the selected project, plus local command
+  start/exit activities that preserve the active tab.
+- Manual and opt-in six-hour stable-release checks with official download-page
+  links. Developer ID, notarization and unattended installation are deferred
+  until the owner prepares Apple Developer membership.
+- Integration instructions and a validation matrix distinguishing automated,
+  native UI, real-account and pending hardware coverage.
+
+### Changed
+
+- The collapsed island now shares the same transparent-glass surface as the
+  expanded island instead of rendering as a solid black block, with a
+  slightly stronger top scrim so status text stays readable; the
+  reduce-transparency and increased-contrast fallbacks are unchanged.
+
+### Fixed
+
+- Bound temporary Foundation log-read buffers between chunks; a local large-log
+  sample reduced peak sampled RSS from 535.92 to 103.28 MiB after warm-up.
+
+- Refresh local AI usage every five seconds in common run-loop modes, on
+  returning to the usage view, and after wake. Cancel outdated provider/folder
+  reads so their results cannot overwrite the current selection.
+- Add opt-in automatic Codex account-limit refresh every minute, independently
+  of local tracking. Retry failed connections with bounded backoff and keep
+  the last successful snapshot visibly marked as stale.
+- Read appended JSONL records incrementally, retry unfinished records, and
+  rebuild the baseline after log truncation, replacement, or a day change.
+  Keep cached numeric data during transient read failures; bound individual
+  records to 8 MiB and disclose skipped data as a partial scan.
+- Show the last local scan and recorded activity separately from the account
+  fetch time. Keep connection errors in the current interface language.
+- Update the compact island from fresh live limits and hide expired or stale
+  percentages instead of continuing to show an old local snapshot.
 
 ### Documentation
 

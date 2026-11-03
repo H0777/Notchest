@@ -59,7 +59,7 @@ struct IslandDisplay: Equatable {
     var notchWidth: CGFloat = 120
     var safeTop: CGFloat = 0
 
-    var minimumCompactWidth: CGFloat { min(max(1, frame.width - 16), max(200, notchWidth + 84)) }
+    var minimumCompactWidth: CGFloat { min(max(1, frame.width - 16), max(200, notchWidth + 120)) }
     var minimumCompactHeight: CGFloat { min(max(1, frame.height - 16), max(34, safeTop + 3)) }
 
     func size(preferences raw: IslandPreferences, expanded: Bool) -> CGSize {

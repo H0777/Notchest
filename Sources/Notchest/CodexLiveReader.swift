@@ -15,8 +15,8 @@ enum CodexLiveError: Error {
 
     var text: ServiceText {
         switch self {
-        case .missing: return ServiceText("تعذّر العثور على Codex CLI", "Codex CLI not found")
-        case .failed: return ServiceText("حساب Codex غير متاح", "Codex account is unavailable")
+        case .missing: return ServiceText("ثبّت Codex CLI ثم سجّل الدخول إليه لعرض حدود الحساب", "Install Codex CLI and sign in to view account limits")
+        case .failed: return ServiceText("تعذّر تحديث Codex؛ تحقّق من تسجيل الدخول واتصال الإنترنت", "Could not refresh Codex. Check your sign-in and internet connection")
         case .timeout: return ServiceText("انتهت مهلة اتصال Codex", "Codex did not respond in time")
         case .invalid: return ServiceText("لم يُرجع Codex حدود الاستخدام", "Codex returned no usage limits")
         }
@@ -53,6 +53,7 @@ enum CodexLiveReader {
     }
 
     static func fetch() throws -> CodexLiveSnapshot {
+        try Task.checkCancellation()
         guard let executable = executable() else { throw CodexLiveError.missing }
         let process = Process()
         let input = Pipe(), output = Pipe()
@@ -62,7 +63,14 @@ enum CodexLiveReader {
         do { try process.run() } catch { throw CodexLiveError.failed }
         defer {
             try? input.fileHandleForWriting.close()
-            if process.isRunning { process.terminate() }
+            if process.isRunning {
+                process.terminate()
+                // A stopped reader must not leave an app-server child alive forever.
+                let processToStop = process
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                    if processToStop.isRunning { kill(processToStop.processIdentifier, SIGKILL) }
+                }
+            }
             try? output.fileHandleForReading.close()
         }
         let fd = output.fileHandleForReading.fileDescriptor
@@ -76,6 +84,7 @@ enum CodexLiveReader {
         func readUntil(ids: Set<Int>) throws -> [Int: [String: Any]] {
             var results: [Int: [String: Any]] = [:]
             while !ids.isSubset(of: Set(results.keys)) {
+                try Task.checkCancellation()
                 while let newline = buffer.firstIndex(of: 10) {
                     let line = Data(buffer[..<newline]); buffer.removeSubrange(...newline)
                     guard let item = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
