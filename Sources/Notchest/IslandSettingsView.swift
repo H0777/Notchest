@@ -111,6 +111,10 @@ struct IslandSettingsView: View {
                 VStack(spacing: 8) {
                     settingRow(icon: "cursorarrow", title: model.text("الفتح عند مرور المؤشّر", "Open on hover"), detail: model.text("اقترب من Notchest لتوسيعها", "Move over the island to expand it"), value: $model.hoverEnabled)
                     settingRow(icon: "doc.on.clipboard", title: model.text("سجلّ الحافظة", "Clipboard history"), detail: model.text("يُمسح عند الإغلاق أو التعطيل", "Cleared on quit or when disabled"), value: $model.clipboardEnabled)
+                    settingRow(icon: "bell", title: model.text("إشعارات النظام", "System notifications"), detail: model.text("اكتمال التركيز والتنزيلات وتنبيهات الأسهم", "Focus completion, downloads, and stock alerts"), value: Binding(
+                        get: { model.notifications.enabled },
+                        set: { model.notifications.enabled = $0 }
+                    ))
                     settingRow(icon: "power", title: model.text("التشغيل عند تسجيل الدخول", "Launch at login"), detail: model.text("قد يطلب macOS الموافقة في إعدادات النظام", "macOS may ask for approval in System Settings"), value: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 }
                 Text(model.text("تُحفظ الإعدادات على هذا الماك.", "Preferences are saved on this Mac."))

@@ -7,6 +7,7 @@ All notable changes to Notchest are documented here. The format follows
 
 ### Added
 
+- Opt-in system notifications via UNUserNotificationCenter for the app's own events: focus completion, new files in Downloads, connected drives, and stock alerts. Opt-in from Settings; authorization is requested only when enabled; wording follows the interface language; checks grow to 37+.
 - First-run connection checks and Developer/Focus/Everyday presets, with
   persistent, reorderable home cards and a background-transparency control.
 - Native clear `NSGlassEffectView` on macOS 26+, preserving the notch outline
@@ -60,6 +61,7 @@ All notable changes to Notchest are documented here. The format follows
   the app, site and release assets stay aligned.
 
 ### Development and release tooling
+
 
 - Community and safety files: `SECURITY.md` (private vulnerability
   reporting), `CONTRIBUTING.md`, pull-request and feature-request templates.
