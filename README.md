@@ -28,6 +28,16 @@ Notchest opens a small island at the top of your display. Start a focus session,
 open a terminal, catch a thought, or check your tools — then collapse it and
 carry on. Aurora colors and native system materials keep it at home on your Mac.
 
+## Notch motion in 0.7.3
+
+Quickly toggling the island used to make the window jump and the cards shift. You can now reverse the animation midway. It continues from the size you see, with the top edge anchored and the text in place. This release also fixes the island sometimes staying open after the pointer left Settings or another tab.
+
+- **If the island stays open**, check the pin in its header. Unpin it and click outside to collapse it. Moving the pointer away keeps the island open while you type or use a file picker. Finish or cancel the picker before dismissing the island.
+- **To reopen by hovering after a manual collapse**, move the pointer off the compact header and back onto it. Check **Open on hover** in Settings, or click the header to open it directly.
+- **To adjust the animation**, open **Settings → Motion & transitions** and choose a motion speed. The app respects the macOS **Reduce Motion** setting.
+
+[Release notes and downloads for 0.7.3](https://github.com/H0777/Notchest/releases/tag/v0.7.3)
+
 [![Notchest overview — actual running interface with illustrative documentation data](site/assets/screenshots/overview.jpg)](https://h0777.github.io/Notchest/#features)
 
 *An actual app capture. Documentation screenshots use labeled sample data;
@@ -61,16 +71,15 @@ account usage, system readings, notes, music, and task events are illustrative.*
 | Mac utilities | Current weather, Apple Translation, stock watchlist, music and lyrics, system readings, supported audio controls, window tiling, image conversion, capture, OCR, ZIP, calculator, Shortcuts, camera mirror, calendar and reminders |
 | Yours | Display selection, island dimensions, accent colors, motion, English or right-to-left Arabic, launch at login |
 
-**Unreleased workspace improvements:** native clear glass and a transparency
-control, first-run connection checks, customizable home cards, opt-in task
-hooks and GitHub Actions tracking, usage alerts and stable-release checks.
+**Workspace tools** include adjustable glass transparency, first-run connection
+checks, customizable home cards, optional task hooks and GitHub Actions tracking,
+usage alerts and stable-release checks.
 [Setup and scope →](Docs/INTEGRATIONS.md) · [Validation →](Docs/VALIDATION.md)
 
-**Unreleased AI usage improvements:** local logs refresh every five seconds. Enable
+With **local AI usage tracking** enabled, logs refresh every five seconds. Enable
 **Auto-refresh every minute** in AI usage for recurring Codex account limits.
 Failed requests retry automatically and retain the last successful data. Local
-statistics update only after the provider writes usage records. These changes
-are in development and are not in the published 0.6.0 download.
+statistics update after the provider writes usage records.
 
 Connected features have setup requirements. The [feature guide](https://h0777.github.io/Notchest/guide.html)
 and [status tracker](FEATURES.md) distinguish what is implemented, what needs permission,
@@ -78,8 +87,8 @@ and what remains on the roadmap.
 
 ## Download
 
-1. Get **Notchest-0.6.0.dmg** from [Releases](https://github.com/H0777/Notchest/releases/latest).
-2. Open it and drag **Notchest** into **Applications**.
+1. Download the DMG from the [latest GitHub release](https://github.com/H0777/Notchest/releases/latest).
+2. If you are updating, quit the running copy from its menu first. Open the DMG and drag **Notchest** into **Applications**.
 3. Launch the app and choose the tools you want to connect.
 
 A portable ZIP is available alongside the DMG. This is a development release;
