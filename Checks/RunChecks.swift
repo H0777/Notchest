@@ -474,6 +474,68 @@ struct RunChecks {
             let status = DeveloperModel.capture(executable: "/usr/bin/git", arguments: ["-C", root.path, "status", "--short", "--branch"])
             precondition(status.contains("##") && status.contains("?? check.txt"))
         }
+        check("Hover opening requires a fresh uninterrupted dwell and respects the preference") {
+            var policy = IslandPointerPolicy()
+            func hover(_ inside: Bool, at time: TimeInterval, enabled: Bool = true) -> IslandPointerPolicy.Action? {
+                policy.evaluate(expanded: false, inside: inside, hoverEnabled: enabled, holdOpen: false, now: time)
+            }
+            precondition(hover(true, at: 0, enabled: false) == nil)
+            precondition(hover(true, at: 1, enabled: false) == nil)
+            precondition(hover(false, at: 2) == nil)
+            precondition(hover(true, at: 3) == nil)
+            precondition(hover(false, at: 3.1) == nil)
+            precondition(hover(true, at: 3.2) == nil)
+            precondition(hover(true, at: 3.3) == nil)
+            precondition(hover(true, at: 3.5) == .open)
+        }
+        check("Closing underneath the pointer stays collapsed until the pointer leaves and re-enters") {
+            var policy = IslandPointerPolicy()
+            func hover(_ inside: Bool, at time: TimeInterval) -> IslandPointerPolicy.Action? {
+                policy.evaluate(expanded: false, inside: inside, hoverEnabled: true, holdOpen: false, now: time)
+            }
+            policy.transitioned(expanded: false, inside: true, now: 0)
+            precondition(policy.needsCompactTracking)
+            precondition(hover(true, at: 1) == nil)
+            precondition(hover(false, at: 2) == nil)
+            precondition(hover(true, at: 3) == nil)
+            precondition(hover(true, at: 3.3) == .open)
+            policy.transitioned(expanded: false, inside: false, now: 4)
+            precondition(hover(false, at: 5) == nil && !policy.needsCompactTracking)
+        }
+        check("Returning to the expanded island cancels the pending close") {
+            var policy = IslandPointerPolicy()
+            func hover(_ inside: Bool, at time: TimeInterval) -> IslandPointerPolicy.Action? {
+                policy.evaluate(expanded: true, inside: inside, hoverEnabled: true, holdOpen: false, now: time)
+            }
+            policy.transitioned(expanded: true, inside: true, now: 0)
+            precondition(hover(false, at: 1) == nil)
+            precondition(hover(true, at: 1.3) == nil)
+            precondition(hover(false, at: 2) == nil)
+            precondition(hover(false, at: 2.3) == nil)
+            precondition(hover(false, at: 2.8) == .close)
+        }
+        check("Releasing a hold outside the island schedules a fresh close without another exit") {
+            var policy = IslandPointerPolicy()
+            func outside(_ time: TimeInterval, held: Bool = false) -> IslandPointerPolicy.Action? {
+                policy.evaluate(expanded: true, inside: false, hoverEnabled: false, holdOpen: held, now: time)
+            }
+            policy.transitioned(expanded: true, inside: true, now: 0)
+            precondition(outside(1) == nil)
+            precondition(outside(1.2, held: true) == nil)
+            precondition(outside(6, held: true) == nil)
+            precondition(outside(7) == nil)
+            precondition(outside(7.8) == .close)
+        }
+        check("Opening outside the island allows time to reach it and closes without a hover exit") {
+            var policy = IslandPointerPolicy()
+            policy.transitioned(expanded: true, inside: false, now: 0)
+            func outside(_ time: TimeInterval) -> IslandPointerPolicy.Action? {
+                policy.evaluate(expanded: true, inside: false, hoverEnabled: false, holdOpen: false, now: time)
+            }
+            precondition(outside(0) == nil)
+            precondition(outside(0.8) == nil)
+            precondition(outside(3.1) == .close)
+        }
         check("Collapsed island respects the physical notch and top inset") {
             let display = IslandDisplay(frame: CGRect(x: 100, y: 200, width: 1440, height: 900), visibleFrame: CGRect(x: 100, y: 240, width: 1440, height: 830), notchWidth: 179, safeTop: 32)
             var preferences = IslandPreferences()

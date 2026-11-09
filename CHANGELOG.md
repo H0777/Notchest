@@ -3,6 +3,16 @@
 All notable changes to Notchest are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.3] — 2026-11-09
+
+### Fixed
+
+- Opening and closing now follow one interruptible window animation. Text and
+  cards keep their layout as the notch reveals them, including on rapid reversals.
+- The island recovers from missed pointer exits and dismisses on outside clicks.
+  Moving the pointer away keeps the island open while pinned, editing text or
+  using a dialog. After a manual collapse, hover opens it on the next entry.
+
 ## [0.7.2] — 2026-11-03
 
 ### Added
