@@ -3,7 +3,7 @@
 All notable changes to Notchest are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.7.3] — 2026-11-09
 
 ### Fixed
 
