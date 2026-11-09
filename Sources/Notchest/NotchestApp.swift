@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import Combine
 import Carbon
-import QuartzCore
 import SwiftTerm
 
 private final class ClearHostingView<Content: View>: NSHostingView<Content> {
@@ -21,14 +20,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var backdrop: NotchestWindowBackdrop?
     private var statusItem: NSStatusItem!
     private var subscriptions = Set<AnyCancellable>()
-    private var closeTask: Task<Void, Never>?
-    private var hoverTask: Task<Void, Never>?
+    private let frameAnimator = IslandFrameAnimator()
+    private var pointerPolicy = IslandPointerPolicy()
+    private var pointerTimer: Timer?
+    private var scheduledDeadline: TimeInterval?
     private var eventMonitor: Any?
+    private var outsideClickMonitor: Any?
+    private var presentedExpanded = false
+    private var trackingMenus = Set<ObjectIdentifier>()
     private var hotKey: EventHotKeyRef?
     private var paletteHotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
     private var screen: NSScreen?
-    private var hovered = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -71,8 +74,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.tools.notify = { [weak self] message in self?.model.showToast(message) }
         model.tools.collapse = { [weak self] in self?.model.expanded = false }
         model.tools.start()
-        model.$expanded.removeDuplicates().dropFirst().sink { [weak self] _ in
-            DispatchQueue.main.async { self?.resizePanel() }
+        model.$expanded.removeDuplicates().dropFirst().sink { [weak self] expanded in
+            // @Published emits before assignment. Geometry and hover callbacks must see
+            // the same state, even if two shortcuts arrive on the same run-loop turn.
+            DispatchQueue.main.async {
+                guard let self, self.model.expanded == expanded, self.presentedExpanded != expanded else { return }
+                self.presentedExpanded = expanded
+                self.presentationChanged(expanded: expanded)
+            }
+        }.store(in: &subscriptions)
+        // Recover missed tracking-area exits after resizes or modal interactions using the existing clock.
+        model.$now.dropFirst().sink { [weak self] _ in
+            guard let self, self.model.expanded || self.pointerPolicy.needsCompactTracking else { return }
+            self.reconcilePointer()
         }.store(in: &subscriptions)
         model.$islandPreferences.removeDuplicates().dropFirst().sink { [weak self] _ in
             // Sliders track the pointer directly; animating every intermediate value adds lag.
@@ -88,8 +102,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }.store(in: &subscriptions)
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        NotificationCenter.default.addObserver(self, selector: #selector(menuBegan(_:)), name: NSMenu.didBeginTrackingNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuEnded(_:)), name: NSMenu.didEndTrackingNotification, object: nil)
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self else { return event }
+            if event.type != .keyDown {
+                if event.window !== self.panel { self.dismissForOutsideClick() }
+                return event
+            }
+            guard event.window === self.panel, !self.interactingWithDialogOrMenu else { return event }
+            if self.model.expanded && !self.pointerInside(expanded: true) {
+                self.pointerPolicy.transitioned(expanded: true, inside: false, now: ProcessInfo.processInfo.systemUptime)
+                self.schedulePointerCheck()
+            }
             // A real terminal owns its Escape and control sequences while it has focus.
             if self.model.tab == .developer, self.model.developer.section == .terminal,
                !self.model.paletteVisible, self.panel.firstResponder is SwiftTerm.TerminalView { return event }
@@ -107,10 +132,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return event
         }
-        model.select(.home)
-        if !model.setupCompleted { model.showingSetup = true }
+        if !model.setupCompleted {
+            model.showingSetup = true
+            model.expanded = true
+        }
         resizePanel(animate: false)
         panel.orderFrontRegardless()
+        reconcilePointer()
     }
 
     private func setupPanel() {
@@ -160,7 +188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateRootView() {
-        let host = ClearHostingView(rootView: IslandView(model: model, onHover: { [weak self] in self?.handleHover($0) }, activate: { [weak self] in self?.panel.makeKey() }))
+        let host = ClearHostingView(rootView: IslandView(model: model, onHover: { [weak self] _ in self?.reconcilePointer() }, activate: { [weak self] in self?.panel.makeKey() }))
+        host.sizingOptions = []
         let background = NotchestWindowBackdrop(frame: panel.contentView?.bounds ?? .zero)
         host.wantsLayer = true
         host.layer?.isOpaque = false
@@ -177,44 +206,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = background
     }
 
-    private func resizePanel(animate: Bool = true) {
+    private func resizePanel(animate: Bool = true, expanded newState: Bool? = nil) {
         guard screen != nil, let panel else { return }
-        backdrop?.islandRadius = model.expanded ? 30 : 17
-        let frame = model.display.windowFrame(preferences: model.islandPreferences, expanded: model.expanded)
+        let expanded = newState ?? model.expanded
+        let preferences = model.islandPreferences
+        backdrop?.configureCornerRadii(compactHeight: model.display.size(preferences: preferences, expanded: false).height,
+                                       expandedHeight: model.display.size(preferences: preferences, expanded: true).height)
+        let frame = model.display.windowFrame(preferences: preferences, expanded: expanded)
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !model.islandPreferences.motionEnabled
-        if animate && !reduced {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = model.expanded ? model.islandPreferences.motion.openDuration : model.islandPreferences.motion.closeDuration
-                context.timingFunction = model.expanded
-                    ? CAMediaTimingFunction(controlPoints: 0.18, 0.80, 0.25, 1.0)
-                    : CAMediaTimingFunction(controlPoints: 0.40, 0.0, 0.75, 0.35)
-                panel.animator().setFrame(frame, display: true)
-            }
-        } else { panel.setFrame(frame, display: true) }
-        if !model.expanded { panel.resignKey() }
+        let duration = expanded ? preferences.motion.openDuration : preferences.motion.closeDuration
+        frameAnimator.setFrame(frame, of: panel, duration: animate && !reduced ? duration : 0, expanded: expanded)
     }
 
-    private func handleHover(_ inside: Bool) {
-        hovered = inside
-        closeTask?.cancel()
-        hoverTask?.cancel()
-        if inside {
-            if model.hoverEnabled && !model.expanded {
-                hoverTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 180_000_000)
-                    guard !Task.isCancelled, let self, self.hovered else { return }
-                    self.model.expanded = true
+    private func pointerInside(expanded: Bool) -> Bool {
+        // While collapsing, only the final header can trigger another hover-open.
+        let frame = expanded ? panel.frame : model.display.windowFrame(preferences: model.islandPreferences, expanded: false)
+        return frame.contains(NSEvent.mouseLocation)
+    }
+
+    private func presentationChanged(expanded: Bool) {
+        pointerPolicy.transitioned(expanded: expanded, inside: pointerInside(expanded: expanded), now: ProcessInfo.processInfo.systemUptime)
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor); self.outsideClickMonitor = nil }
+        if expanded {
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                self?.dismissForOutsideClick()
+            }
+        } else if panel.isKeyWindow {
+            panel.makeFirstResponder(nil)
+            panel.resignKey()
+        }
+        resizePanel(expanded: expanded)
+        schedulePointerCheck()
+    }
+
+    private var interactingWithDialogOrMenu: Bool {
+        NSApp.modalWindow != nil || panel.attachedSheet != nil || !trackingMenus.isEmpty
+    }
+
+    private var editing: Bool {
+        guard panel.isKeyWindow else { return false }
+        if let textView = panel.firstResponder as? NSTextView { return textView.isEditable }
+        return panel.firstResponder is SwiftTerm.TerminalView
+    }
+
+    private func reconcilePointer() {
+        guard let panel, panel.isVisible else { return }
+        let expanded = model.expanded
+        let hold = model.pinned || model.showingSetup || model.dropTargeted || interactingWithDialogOrMenu || editing || NSEvent.pressedMouseButtons != 0
+        let action = pointerPolicy.evaluate(expanded: expanded, inside: pointerInside(expanded: expanded),
+                                            hoverEnabled: model.hoverEnabled && !interactingWithDialogOrMenu && NSEvent.pressedMouseButtons == 0,
+                                            holdOpen: hold, now: ProcessInfo.processInfo.systemUptime)
+        if let action { model.expanded = action == .open }
+        else { schedulePointerCheck() }
+    }
+
+    private func schedulePointerCheck() {
+        let deadline = pointerPolicy.deadline
+        guard scheduledDeadline != deadline else { return }
+        pointerTimer?.invalidate()
+        pointerTimer = nil
+        scheduledDeadline = deadline
+        if let deadline {
+            let timer = Timer(timeInterval: max(0, deadline - ProcessInfo.processInfo.systemUptime), repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.scheduledDeadline = nil
+                    self?.reconcilePointer()
                 }
             }
-        } else if !model.pinned {
-            closeTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 850_000_000)
-                guard !Task.isCancelled, let self, !self.hovered, !self.model.pinned, !self.model.showingSetup, NSApp.modalWindow == nil else { return }
-                // Never collapse while the user is entering a note or a clipboard query.
-                if self.panel.isKeyWindow && (self.model.tab == .notes || self.model.tab == .clipboard || self.model.tab == .settings) { return }
-                self.model.expanded = false
-            }
+            pointerTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
         }
+    }
+
+    private func dismissForOutsideClick() {
+        guard model.expanded, !model.pinned, !interactingWithDialogOrMenu, !model.dropTargeted,
+              !pointerInside(expanded: true) else { return }
+        model.expanded = false
+    }
+
+    @objc private func menuBegan(_ notification: Notification) {
+        if let menu = notification.object as? NSMenu { trackingMenus.insert(ObjectIdentifier(menu)) }
+    }
+
+    @objc private func menuEnded(_ notification: Notification) {
+        if let menu = notification.object as? NSMenu { trackingMenus.remove(ObjectIdentifier(menu)) }
+        reconcilePointer()
     }
 
     private func setupMenu() {
@@ -315,8 +391,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.stocks.stop()
         model.activity.stopAPI()
         TerminalSession.shared.stop()
-        closeTask?.cancel()
-        hoverTask?.cancel()
+        frameAnimator.stop()
+        pointerTimer?.invalidate()
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
         if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
         if let hotKey { UnregisterEventHotKey(hotKey) }
         if let paletteHotKey { UnregisterEventHotKey(paletteHotKey) }

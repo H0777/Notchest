@@ -108,16 +108,41 @@ struct NotchestMark: View {
     }
 }
 
-/// The material is a sibling below the SwiftUI host, keeping all content above AppKit's backdrop layer.
+struct IslandCornerGeometry: Equatable {
+    var compactHeight: CGFloat
+    var expandedHeight: CGFloat
+
+    func progress(at height: CGFloat) -> CGFloat {
+        guard expandedHeight > compactHeight else { return 0 }
+        return min(1, max(0, (height - compactHeight) / (expandedHeight - compactHeight)))
+    }
+
+    func radius(at height: CGFloat) -> CGFloat { 17 + 13 * progress(at: height) }
+}
+
+/// Masks the native material and its SwiftUI content together as the panel changes size.
 final class NotchestWindowBackdrop: NSView {
     let contentContainer = NSView()
+    private let outlineMask = CAShapeLayer()
+    private var corners = IslandCornerGeometry(compactHeight: 34, expandedHeight: 544)
+    private var maskedBounds = CGRect.null
+    private var maskedRadius: CGFloat = 0
     private var legacyBackdrop: NSVisualEffectView?
-    var islandRadius: CGFloat = 30 { didSet { needsLayout = true } }
+    private var legacyMasks = [Int: NSImage]()
+
+    func configureCornerRadii(compactHeight: CGFloat, expandedHeight: CGFloat) {
+        let geometry = IslandCornerGeometry(compactHeight: compactHeight, expandedHeight: expandedHeight)
+        guard geometry != corners else { return }
+        corners = geometry
+        needsLayout = true
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         appearance = NSAppearance(named: .darkAqua)
         wantsLayer = true
         layer?.masksToBounds = true
+        layer?.mask = outlineMask
         contentContainer.frame = bounds
         contentContainer.autoresizingMask = [.width, .height]
         if #available(macOS 26, *) {
@@ -142,21 +167,42 @@ final class NotchestWindowBackdrop: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layout() {
         super.layout()
+        let radius = corners.radius(at: bounds.height)
+        guard !bounds.isEmpty, bounds != maskedBounds || radius != maskedRadius else { return }
         var flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: bounds.height)
-        let mask = CAShapeLayer()
-        guard let outline = IslandOutline.path(in: bounds, radius: islandRadius).copy(using: &flip) else { return }
-        mask.path = outline
-        layer?.mask = mask
-        // Clip the system backdrop itself as well as the content layer; otherwise blur can leak as a rectangular frame.
-        if bounds.width > 0, bounds.height > 0 {
-            legacyBackdrop?.maskImage = NSImage(size: bounds.size, flipped: false) { _ in
-                guard let context = NSGraphicsContext.current?.cgContext else { return false }
-                context.addPath(outline)
-                context.setFillColor(NSColor.black.cgColor)
-                context.fillPath()
-                return true
-            }
+        guard let outline = IslandOutline.path(in: bounds, radius: radius).copy(using: &flip) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        outlineMask.frame = bounds
+        outlineMask.path = outline
+        if let legacyBackdrop {
+            let image = legacyMask(radius: Int(radius.rounded()))
+            if legacyBackdrop.maskImage !== image { legacyBackdrop.maskImage = image }
         }
+        CATransaction.commit()
+        maskedBounds = bounds
+        maskedRadius = radius
+    }
+
+    // The older material needs its own alpha mask. Stretch only the straight
+    // edges so resizes can reuse small images with the same corner curvature.
+    private func legacyMask(radius: Int) -> NSImage {
+        if let cached = legacyMasks[radius] { return cached }
+        let r = CGFloat(radius)
+        let size = CGSize(width: 4 * r, height: 2 * r + 1)
+        let path = IslandOutline.path(in: CGRect(origin: .zero, size: size), radius: r)
+        let image = NSImage(size: size, flipped: true) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.addPath(path)
+            context.setFillColor(NSColor.black.cgColor)
+            context.fillPath()
+            return true
+        }
+        let side = ceil(1.6 * r)
+        image.capInsets = NSEdgeInsets(top: ceil(0.6 * r), left: side, bottom: r, right: side)
+        image.resizingMode = .stretch
+        legacyMasks[radius] = image
+        return image
     }
 }
 

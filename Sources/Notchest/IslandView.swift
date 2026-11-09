@@ -16,9 +16,10 @@ struct IslandView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var tabIndicator
     private var motionAllowed: Bool { !reduceMotion && model.islandPreferences.motionEnabled }
-    private var expansionAnimation: Animation? {
+    private var contentFade: Animation? {
         guard motionAllowed else { return nil }
-        return .spring(response: model.expanded ? model.islandPreferences.motion.openDuration : model.islandPreferences.motion.closeDuration, dampingFraction: 0.88)
+        let motion = model.islandPreferences.motion
+        return .easeOut(duration: model.expanded ? motion.openDuration * 0.7 : motion.closeDuration * 0.45)
     }
     private var navigationAnimation: Animation? {
         guard motionAllowed else { return nil }
@@ -35,56 +36,83 @@ struct IslandView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button { model.expanded.toggle(); activate() } label: {
-                compactHeader
-                    .frame(height: model.display.size(preferences: model.islandPreferences, expanded: false).height)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(model.expanded ? model.text("طيّ Notchest", "Collapse Notchest") : model.text("فتح Notchest", "Open Notchest"))
-            .help(model.text("انقر لفتح Notchest أو طيّها", "Click to open or collapse Notchest"))
-            if model.expanded {
-                VStack(spacing: 17) {
-                    header
-                    tabs
-                    ZStack(alignment: .top) {
-                        content
-                            .id(contentIdentity)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .transition(motionAllowed ? .asymmetric(insertion: .opacity.combined(with: .offset(y: 7)), removal: .opacity.combined(with: .offset(y: -4))) : .identity)
+        let compact = model.display.size(preferences: model.islandPreferences, expanded: false)
+        let expanded = model.display.size(preferences: model.islandPreferences, expanded: true)
+        let corners = IslandCornerGeometry(compactHeight: compact.height, expandedHeight: expanded.height)
+        return GeometryReader { geometry in
+            Color.clear
+                .overlay(alignment: .top) {
+                    // Lay out the page at its destination size. The moving window reveals it
+                    // without rewrapping labels or rebuilding grids at every intermediate width.
+                    ZStack {
+                        if model.expanded {
+                            expandedPage
+                                .transition(.opacity)
+                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .animation(navigationAnimation, value: contentIdentity)
-                    footer
+                    .frame(width: expanded.width, height: max(0, expanded.height - compact.height))
+                    .animation(contentFade, value: model.expanded)
+                    .offset(y: compact.height)
+                    .allowsHitTesting(model.expanded)
+                    .accessibilityHidden(!model.expanded)
                 }
-                .padding(.horizontal, 41)
-                .padding(.top, 11)
-                .padding(.bottom, 19)
-                .environment(\.layoutDirection, model.arabic ? .rightToLeft : .leftToRight)
-                .environment(\.locale, Locale(identifier: model.arabic ? "ar" : "en_US"))
-                .transition(motionAllowed ? .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .top)), removal: .opacity.combined(with: .offset(y: -8))) : .identity)
-            }
+                .overlay(alignment: .top) {
+                    Button {
+                        model.expanded.toggle()
+                        if model.expanded { activate() }
+                    } label: {
+                        compactHeader
+                            .padding(.horizontal, 17 + 12 * corners.progress(at: geometry.size.height))
+                            .frame(height: compact.height)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(model.expanded ? model.text("طيّ Notchest", "Collapse Notchest") : model.text("فتح Notchest", "Open Notchest"))
+                    .help(model.text("انقر لفتح Notchest أو طيّها", "Click to open or collapse Notchest"))
+                }
+                .background {
+                    NotchestIslandSurface(expanded: model.expanded, opacity: model.workspace.validated().backgroundOpacity)
+                        .animation(contentFade, value: model.expanded)
+                }
+                .overlay {
+                    if targeted {
+                        IslandShape(radius: corners.radius(at: geometry.size.height))
+                            .strokeBorder(notchestAccent.opacity(0.65), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+                }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background { NotchestIslandSurface(expanded: model.expanded, opacity: model.workspace.validated().backgroundOpacity) }
-        .clipShape(IslandShape(radius: model.expanded ? 30 : 17))
-        .overlay {
-            if targeted {
-                IslandShape(radius: model.expanded ? 30 : 17).strokeBorder(notchestAccent.opacity(0.65), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-        }
-        .animation(expansionAnimation, value: model.expanded)
+        .contentShape(Rectangle())
         .preferredColorScheme(.dark)
         .tint(notchestAccent)
         .environment(\.notchestMotionEnabled, model.islandPreferences.motionEnabled)
         .onHover(perform: onHover)
-        .onTapGesture { activate() }
+        .onTapGesture { if model.expanded { activate() } }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $model.dropTargeted, perform: receiveDrop)
         .onChange(of: targeted) { active in
             if active { model.select(.shelf) }
         }
+    }
+
+    private var expandedPage: some View {
+        VStack(spacing: 17) {
+            header
+            tabs
+            ZStack(alignment: .top) {
+                content
+                    .id(contentIdentity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(motionAllowed ? .asymmetric(insertion: .opacity.combined(with: .offset(y: 7)), removal: .opacity.combined(with: .offset(y: -4))) : .identity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .animation(navigationAnimation, value: contentIdentity)
+            footer
+        }
+        .padding(.horizontal, 41)
+        .padding(.top, 11)
+        .padding(.bottom, 19)
+        .environment(\.layoutDirection, model.arabic ? .rightToLeft : .leftToRight)
+        .environment(\.locale, Locale(identifier: model.arabic ? "ar" : "en_US"))
     }
 
     private var compactHeader: some View {
@@ -116,7 +144,6 @@ struct IslandView: View {
                     .font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
             }
         }
-        .padding(.horizontal, model.expanded ? 29 : 17)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .environment(\.layoutDirection, .leftToRight)
