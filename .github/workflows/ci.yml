@@ -18,6 +18,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Validate website and feature gallery
         run: python3 Scripts/check-site.py
+      - name: Upload feature gallery
+        uses: actions/upload-artifact@v4
+        with:
+          name: notchest-feature-gallery
+          path: site/assets/screenshots/*.jpg
+          if-no-files-found: error
       - name: Build (debug, no signing)
         run: swift build
       - name: Run unit tests
