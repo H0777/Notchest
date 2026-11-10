@@ -43,9 +43,12 @@ Quickly toggling the island used to make the window jump and the cards shift. Yo
 *An actual app capture. Documentation screenshots use labeled sample data;
 account usage, system readings, notes, music, and task events are illustrative.*
 
-![Notchest in motion — a real screen recording](site/assets/demo.gif)
+Download the feature screenshots from the **notchest-feature-gallery** artifact
+in a [GitHub Actions CI run](https://github.com/H0777/Notchest/actions/workflows/ci.yml).
 
-*The island in motion — a real screen recording of the running app.*
+![Glass and transparency controls in the current Notchest interface](site/assets/screenshots/settings.jpg)
+
+*Adjust transparency and rearrange the overview cards in Settings.*
 
 ## See what is inside
 

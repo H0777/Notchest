@@ -16,12 +16,12 @@ the capture shows the setup controls rather than implying a personal account is
 connected. No personal account data, private clipboard, API keys, camera imagery,
 or personal calendar events were used.
 
-The terminal runs a real isolated interactive shell in `/tmp/Notchest-Demo`;
-the command-runner example executes `printf` and displays its actual result.
-No music was played, and no camera, calendar, accessibility, or recording
-permissions were granted to produce these images.
+The terminal capture shows its start screen, and command and project examples
+use illustrative data. No music was played, and no camera, calendar,
+accessibility, or recording permissions were granted for these captures.
 
-The native UI source baseline is commit `b954529`. Documentation fixtures are
+The screenshots reflect the 0.7.3 interface, including the glass surface,
+updated overview and AI summaries. Documentation fixtures are
 kept in `Scripts/gallery/`, outside production `Sources/`. The preparation script
 copies the app into an ignored build directory, injects demonstration models,
 skips background-service startup, and uses a separate bundle identifier. The
